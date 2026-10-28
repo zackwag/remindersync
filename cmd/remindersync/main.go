@@ -1,6 +1,6 @@
 // Command remindersync syncs Apple Reminders lists to other to-do targets.
 //
-// For now it only has the Skylight subcommands used to log in and poke at the
+// For now it only has subcommands for poking at Apple Reminders and the
 // Skylight API directly.
 package main
 
@@ -15,9 +15,10 @@ import (
 const usage = `Usage: remindersync <command> [arguments]
 
 Commands:
+  reminders   Read Apple Reminders lists (macOS only)
   skylight    Log in to Skylight and work with its lists directly
 
-Run "remindersync skylight -h" for details.
+Run "remindersync <command> -h" for details.
 `
 
 func main() {
@@ -46,6 +47,8 @@ func run(ctx context.Context, args []string) error {
 		return errUsage
 	}
 	switch args[0] {
+	case "reminders":
+		return runReminders(ctx, args[1:])
 	case "skylight":
 		return runSkylight(ctx, args[1:])
 	case "-h", "--help", "help":

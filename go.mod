@@ -2,7 +2,10 @@ module github.com/zackwag/remindersync
 
 go 1.27.3
 
-require github.com/zalando/go-keyring v0.2.8
+require (
+	github.com/BRO3886/go-eventkit v0.16.0
+	github.com/zalando/go-keyring v0.2.8
+)
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect

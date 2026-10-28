@@ -10,8 +10,19 @@ Early. What's here so far:
 
 - `skylight/`: a Go client for the Skylight API (OAuth login with PKCE, token refresh, frames, lists, and list items).
 - `remindersync skylight ...`: CLI commands for logging in and working with Skylight lists directly.
+- `remindersync reminders ...`: CLI commands for reading Apple Reminders lists through EventKit (macOS only).
 
-The Reminders side and the sync engine aren't built yet.
+The sync engine isn't built yet.
+
+## Reminders
+
+Reminders access goes through EventKit by way of [go-eventkit](https://github.com/BRO3886/go-eventkit), so there's no iCloud login: ReminderSync sees whatever lists the Mac's Reminders app sees, including lists shared with you. The first run asks macOS for Reminders access, and the prompt names your terminal app rather than `remindersync`. If you deny it, turn it back on in System Settings > Privacy & Security > Reminders.
+
+```sh
+go run ./cmd/remindersync reminders lists
+go run ./cmd/remindersync reminders items -list LIST_ID
+go run ./cmd/remindersync reminders items -list LIST_ID -completed
+```
 
 ## Skylight
 
