@@ -166,7 +166,7 @@ Because changes are detected by comparing values, not timestamps or events, the 
 
 ### First sync
 
-A pair with no links yet may have the same things on both sides, such as "Milk" in Reminders and on the frame. Creating both would duplicate them. So on the first sync only, incomplete items are matched by exact title, one to one, and linked without writing anything. Items with ambiguous titles (the same title more than once on a side) aren't matched and fall through to the normal create rules. This is the only place titles are compared, and `remindersync sync --dry-run` shows the matches before anything is written.
+A pair with no links yet may have the same things on both sides, such as "Milk" in Reminders and on the frame. Creating both would duplicate them. So on the first sync only, incomplete items are matched by exact title, one to one, and linked without writing anything. Items with ambiguous titles (the same title more than once on a side) aren't matched and fall through to the normal create rules. This is the only place titles are compared, and `remindersync sync -dry-run` shows the matches before anything is written.
 
 ### Crash recovery
 
@@ -174,10 +174,10 @@ Before creating an item on either side, the engine writes a `pending_create` row
 
 ## Safety limits
 
-- **Dry run.** `remindersync sync --dry-run` prints the plan for each pair and writes nothing.
-- **Mass-change limit.** If a pair's plan deletes more than `max(5, 25%)` of its linked target items, or completes that many hub items because their target items were deleted, the pair is skipped and reported. `sync --force` runs it anyway. For `Groceries` with, say, 20 active links, that's anything over 5. Clearing a whole list on the frame trips it, which is the point. Checking items off on either side doesn't count, since that's ordinary use.
+- **Dry run.** `remindersync sync -dry-run` prints the plan for each pair and writes nothing.
+- **Mass-change limit.** If a pair's plan deletes more than `max(5, 25%)` of its linked target items, or completes that many hub items because their target items were deleted, the pair is skipped and reported. `sync -force` runs it anyway. For `Groceries` with, say, 20 active links, that's anything over 5. Clearing a whole list on the frame trips it, which is the point. Checking items off on either side doesn't count, since that's ordinary use.
 - **Reads are all or nothing.** An error, a 5xx or a timeout aborts the pair. A missing list aborts the pair. Neither is ever read as "everything was deleted".
-- **One process at a time.** An exclusive `flock` on a lock file next to the database stops the daemon and a manual `sync` from running at once.
+- **One process at a time.** An exclusive `flock` on `sync.lock` next to the database stops the daemon and a manual `sync` from running at once. The OS drops the lock if the process dies. A dry run writes nothing, so it doesn't take the lock.
 - **No writes to fields a target lacks.** Hub updates set only `Title` and `Completed`.
 
 ## Running it
@@ -189,7 +189,7 @@ Before creating an item on either side, the engine writes a `pending_create` row
 
 It's installed as a launchd user agent (`~/Library/LaunchAgents`) rather than a system daemon, because EventKit access is granted per user and needs a login session. `remindersync install` writes the plist and loads it.
 
-Other commands: `remindersync sync [--pair NAME] [--dry-run] [--force]` runs once, and `remindersync status` shows each pair's link count, last sync and last error.
+Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, and `remindersync status` shows each pair's link count, unfinished creates, and the time, change count and any error of its last sync, from a `run` table in `state.db`.
 
 ## Dismissed alternatives
 

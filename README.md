@@ -12,8 +12,9 @@ Early. What's here so far:
 - `remindersync skylight ...`: CLI commands for logging in and working with Skylight lists directly.
 - `remindersync reminders ...`: CLI commands for reading Apple Reminders lists through EventKit (macOS only).
 - `remindersync config`: an interactive menu for adding and removing sync pairs.
+- `remindersync sync` and `remindersync status`: sync every pair once and see how each pair stands.
 
-The engine, state store and stores are built and tested, but there's no `sync` command yet.
+There's no daemon yet, so syncing only happens when you run `sync`.
 
 ## Set up sync pairs
 
@@ -22,6 +23,18 @@ go run ./cmd/remindersync config
 ```
 
 Pick a Reminders list, a Skylight frame and list, and a direction (two-way, or one-way where Skylight mirrors Reminders), then name the pair. If Skylight isn't logged in yet, the wizard runs the login first. Pairs are saved to `~/Library/Application Support/remindersync/config.toml`. A Reminders list can be in several pairs, but a Skylight list can only be in one, since two pairs writing the same list would fight over it. Read-only Reminders lists can only be one-way.
+
+## Sync
+
+```sh
+go run ./cmd/remindersync sync -dry-run
+go run ./cmd/remindersync sync
+go run ./cmd/remindersync status
+```
+
+Run `-dry-run` first, especially before a pair's first sync: it prints every change it would make and writes nothing. On a first sync, incomplete items whose titles appear exactly once on each side are linked rather than copied, and completed reminders are never copied. `-pair NAME` syncs one pair. If a sync would delete or complete more than `max(5, 25%)` of a pair's linked items, that pair is skipped until you rerun with `-force`. A pair that fails doesn't stop the others. Only one sync runs at a time; a dry run can run alongside it.
+
+Sync state lives in `~/Library/Application Support/remindersync/state.db`. See [docs/design.md](docs/design.md) for how changes are detected and merged.
 
 ## Reminders
 

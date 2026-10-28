@@ -1,7 +1,7 @@
 // Command remindersync syncs Apple Reminders lists to other to-do targets.
 //
-// So far it can set up sync pairs and poke at Apple Reminders and the
-// Skylight API directly; it can't sync yet.
+// It sets up sync pairs, syncs them once on demand, and has subcommands for
+// poking at Apple Reminders and the Skylight API directly.
 package main
 
 import (
@@ -16,6 +16,8 @@ const usage = `Usage: remindersync <command> [arguments]
 
 Commands:
   config      Add and remove sync pairs
+  sync        Sync every pair once (-dry-run to preview)
+  status      Show each pair's linked items and last sync
   reminders   Read Apple Reminders lists (macOS only)
   skylight    Log in to Skylight and work with its lists directly
 
@@ -50,6 +52,10 @@ func run(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "config":
 		return runConfig(ctx, args[1:])
+	case "sync":
+		return runSync(ctx, args[1:])
+	case "status":
+		return runStatus(ctx, args[1:])
 	case "reminders":
 		return runReminders(ctx, args[1:])
 	case "skylight":

@@ -369,3 +369,93 @@ func TestCorruptTimesAreErrors(t *testing.T) {
 		t.Error("Pending: want an error for a bad started_at")
 	}
 }
+
+func TestStatusAndRuns(t *testing.T) {
+	ctx := context.Background()
+	db, _ := open(t)
+
+	st, err := db.Status(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != (PairStatus{}) {
+		t.Errorf("new pair status = %+v, want zero", st)
+	}
+
+	for _, l := range []engine.Link{link("h1", "t1", "Milk"), link("h2", "t2", "Eggs")} {
+		if err := db.PutLink(ctx, "p", l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.BeginCreate(ctx, "p", engine.PendingCreate{Side: engine.SideTarget, SourceID: "h3", StartedAt: synced}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutLink(ctx, "other", link("h1", "t1", "Milk")); err != nil {
+		t.Fatal(err)
+	}
+	first := Run{FinishedAt: synced, Planned: 3, Applied: 1, Error: "skylight: 500"}
+	if err := db.RecordRun(ctx, "p", first); err != nil {
+		t.Fatal(err)
+	}
+	second := Run{FinishedAt: synced.Add(time.Minute), Planned: 2, Applied: 2}
+	if err := db.RecordRun(ctx, "p", second); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = db.Status(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Links != 2 || st.Pending != 1 || st.LastRun == nil || *st.LastRun != second {
+		t.Errorf("status = %+v (last run %+v), want 2 links, 1 pending, last run %+v", st, st.LastRun, second)
+	}
+}
+
+func TestStatusErrors(t *testing.T) {
+	ctx := context.Background()
+	db, _ := open(t)
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO run VALUES ('p', 'whenever', 0, 0, '')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Status(ctx, "p"); err == nil {
+		t.Error("want an error for a bad finished_at")
+	}
+
+	_ = db.Close()
+	if _, err := db.Status(ctx, "p"); err == nil {
+		t.Error("Status on a closed database: want an error")
+	}
+	if err := db.RecordRun(ctx, "p", Run{}); err == nil {
+		t.Error("RecordRun on a closed database: want an error")
+	}
+}
+
+func TestUpgradeFromFirstSchema(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+
+	// Build a database as the first release would have left it.
+	orig := migrations
+	migrations = orig[:1]
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutLink(ctx, "p", link("h1", "t1", "Milk")); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	migrations = orig
+
+	db, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.RecordRun(ctx, "p", Run{FinishedAt: synced}); err != nil {
+		t.Fatalf("run table missing after upgrade: %v", err)
+	}
+	if links, _ := db.Links(ctx, "p"); len(links) != 1 {
+		t.Errorf("links after upgrade = %+v", links)
+	}
+}
