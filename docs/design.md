@@ -28,6 +28,7 @@ From the spikes in #1 and #5, against real data:
 | Reading all 876 of my reminders takes about 130 ms. | Reading the whole hub every sync is fine. No incremental reads needed. |
 | go-eventkit's `WithListID` is broken in v0.16.0. | Reminders are filtered by `ListID` in our code. |
 | `Groceries` has 489 reminders, all completed. | Completed history must not be copied to a target. |
+| Completing a repeating reminder through go-eventkit works like Reminders.app: the reminder keeps its ID, stays open and moves to its next due date, and a completed copy with a new ID is added. `UpdateReminder` returns the open reminder. | Completing a hub item can leave it open. The target item has to be reopened to match (see [Repeating reminders](#repeating-reminders)). |
 
 ## Architecture
 
@@ -164,9 +165,17 @@ For each pair, independently:
 
 Because changes are detected by comparing values, not timestamps or events, the sync is idempotent: a run straight after another run plans nothing. Our own writes don't count as changes on the next pass, because the baseline is updated with the result of each write. That's what prevents the feedback loop behind the 762 duplicates.
 
+### Repeating reminders
+
+When a target item linked to a repeating reminder is checked off, the sync completes the reminder, and EventKit moves it to its next due date instead of closing it. In the same step, the sync writes the hub's value back to the target, so the target item is unchecked again and both baselines say open. Without that, the hub would report "open, unchanged" from then on and the target item would stay checked off for every later occurrence. The rule is general: if the hub returns a different value for a field it was asked to change, that value goes to the target too.
+
+Deleting the target item works the same way. The sync completes the reminder and unlinks it. The reminder is still open, so the next sync copies it to the target again, and the completed copy is never copied. Checking it off in Reminders changes nothing on the target, because the reminder stays open.
+
+Targets don't show due dates, so a repeating item reappears unchecked straight away rather than when its next occurrence is due.
+
 ### First sync
 
-A pair with no links yet may have the same things on both sides, such as "Milk" in Reminders and on the frame. Creating both would duplicate them. So on the first sync only, incomplete items are matched by exact title, one to one, and linked without writing anything. Items with ambiguous titles (the same title more than once on a side) aren't matched and fall through to the normal create rules. This is the only place titles are compared, and `remindersync sync --dry-run` shows the matches before anything is written.
+A pair with no links yet may have the same things on both sides, such as "Milk" in Reminders and on the frame. Creating both would duplicate them. So on the first sync only, incomplete items are matched by exact title, one to one, and linked without writing anything. Items with ambiguous titles (the same title more than once on a side) aren't matched and fall through to the normal create rules. This is the only place titles are compared, and `remindersync sync -dry-run` shows the matches before anything is written.
 
 ### Crash recovery
 
@@ -174,10 +183,10 @@ Before creating an item on either side, the engine writes a `pending_create` row
 
 ## Safety limits
 
-- **Dry run.** `remindersync sync --dry-run` prints the plan for each pair and writes nothing.
-- **Mass-change limit.** If a pair's plan deletes more than `max(5, 25%)` of its linked target items, or completes that many hub items because their target items were deleted, the pair is skipped and reported. `sync --force` runs it anyway. For `Groceries` with, say, 20 active links, that's anything over 5. Clearing a whole list on the frame trips it, which is the point. Checking items off on either side doesn't count, since that's ordinary use.
+- **Dry run.** `remindersync sync -dry-run` prints the plan for each pair and writes nothing.
+- **Mass-change limit.** If a pair's plan deletes more than `max(5, 25%)` of its linked target items, or completes that many hub items because their target items were deleted, the pair is skipped and reported. `sync -force` runs it anyway. For `Groceries` with, say, 20 active links, that's anything over 5. Clearing a whole list on the frame trips it, which is the point. Checking items off on either side doesn't count, since that's ordinary use.
 - **Reads are all or nothing.** An error, a 5xx or a timeout aborts the pair. A missing list aborts the pair. Neither is ever read as "everything was deleted".
-- **One process at a time.** An exclusive `flock` on a lock file next to the database stops the daemon and a manual `sync` from running at once.
+- **One process at a time.** An exclusive `flock` on `sync.lock` next to the database stops the daemon and a manual `sync` from running at once. The OS drops the lock if the process dies. A dry run writes nothing, so it doesn't take the lock.
 - **No writes to fields a target lacks.** Hub updates set only `Title` and `Completed`.
 
 ## Running it
@@ -189,7 +198,7 @@ Before creating an item on either side, the engine writes a `pending_create` row
 
 It's installed as a launchd user agent (`~/Library/LaunchAgents`) rather than a system daemon, because EventKit access is granted per user and needs a login session. `remindersync install` writes the plist and loads it.
 
-Other commands: `remindersync sync [--pair NAME] [--dry-run] [--force]` runs once, and `remindersync status` shows each pair's link count, last sync and last error.
+Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, and `remindersync status` shows each pair's link count, unfinished creates, and the time, change count and any error of its last sync, from a `run` table in `state.db`.
 
 ## Dismissed alternatives
 
@@ -208,7 +217,6 @@ Other commands: `remindersync sync [--pair NAME] [--dry-run] [--force]` runs onc
 ## Open questions
 
 - **TCC under launchd.** Will a bare binary started by launchd get the Reminders permission prompt, or does it need an app bundle with `NSRemindersUsageDescription`? This needs a spike before `install`.
-- **Recurring reminders.** What does `Completed=true` from go-eventkit do to a recurring reminder? Reminders.app moves it to the next occurrence. A target item linked to it should probably go back to pending, but that depends on what EventKit actually does.
 - **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
 - **Skylight `draft` items.** Items have a `draft` flag. Should drafts be skipped?
 - **Skylight rate limits.** Unknown. The first sync of a big list writes sequentially, with no parallel requests.

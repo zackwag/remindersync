@@ -34,6 +34,10 @@ type memStore struct {
 	// normalize, if set, rewrites titles on write, like a target that trims
 	// whitespace.
 	normalize func(string) string
+	// repeating holds the IDs of items that behave like repeating reminders:
+	// completing one leaves it open and adds a completed copy, as EventKit
+	// does.
+	repeating map[string]bool
 	// itemsErr fails reads.
 	itemsErr error
 	// createErr fails creates before anything is made.
@@ -97,7 +101,11 @@ func (m *memStore) Update(_ context.Context, id string, ch Change) (Item, error)
 		m.items[i].Title = m.norm(*ch.Title)
 	}
 	if ch.Completed != nil {
-		m.items[i].Completed = *ch.Completed
+		if *ch.Completed && m.repeating[id] {
+			m.add(m.items[i].Title, true)
+		} else {
+			m.items[i].Completed = *ch.Completed
+		}
 	}
 	return m.items[i], nil
 }

@@ -25,6 +25,17 @@ type Change struct {
 	Completed *bool
 }
 
+// with returns c with the fields set in o replacing its own.
+func (c Change) with(o Change) Change {
+	if o.Title != nil {
+		c.Title = o.Title
+	}
+	if o.Completed != nil {
+		c.Completed = o.Completed
+	}
+	return c
+}
+
 // IsZero reports whether the change writes nothing.
 func (c Change) IsZero() bool {
 	return c.Title == nil && c.Completed == nil

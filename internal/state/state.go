@@ -1,5 +1,6 @@
 // Package state is the SQLite-backed [engine.State]: one row per linked item
-// and one per create in flight, scoped by pair ID.
+// and one per create in flight, scoped by pair ID, plus each pair's last run
+// for `remindersync status`.
 package state
 
 import (
@@ -40,6 +41,13 @@ var migrations = []string{
 		title      TEXT NOT NULL,
 		started_at TEXT NOT NULL,
 		PRIMARY KEY (pair_id, side, source_id)
+	);`,
+	`CREATE TABLE run (
+		pair_id     TEXT PRIMARY KEY,
+		finished_at TEXT NOT NULL,
+		planned     INTEGER NOT NULL,
+		applied     INTEGER NOT NULL,
+		error       TEXT NOT NULL
 	);`,
 }
 
@@ -228,6 +236,71 @@ func (s *DB) AbandonCreate(ctx context.Context, pairID string, side engine.Side,
 		return fmt.Errorf("state: abandon create %s: %w", sourceID, err)
 	}
 	return nil
+}
+
+// Run is the outcome of a pair's most recent sync that wasn't a dry run.
+type Run struct {
+	FinishedAt time.Time
+	// Planned and Applied are how many actions the plan had and how many
+	// were carried out.
+	Planned int
+	Applied int
+	// Error is empty when the sync succeeded.
+	Error string
+}
+
+// PairStatus summarizes one pair's state for `remindersync status`.
+type PairStatus struct {
+	Links   int
+	Pending int
+	// LastRun is nil if the pair has never synced.
+	LastRun *Run
+}
+
+// RecordRun saves the outcome of a sync, replacing the pair's previous one.
+func (s *DB) RecordRun(ctx context.Context, pairID string, r Run) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO run (pair_id, finished_at, planned, applied, error)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (pair_id) DO UPDATE SET
+			finished_at = excluded.finished_at,
+			planned = excluded.planned,
+			applied = excluded.applied,
+			error = excluded.error`,
+		pairID, formatTime(r.FinishedAt), r.Planned, r.Applied, r.Error)
+	if err != nil {
+		return fmt.Errorf("state: record run for %s: %w", pairID, err)
+	}
+	return nil
+}
+
+// Status returns a pair's link and pending-create counts and its last run.
+func (s *DB) Status(ctx context.Context, pairID string) (PairStatus, error) {
+	var st PairStatus
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM link WHERE pair_id = ?),
+			(SELECT COUNT(*) FROM pending_create WHERE pair_id = ?)`,
+		pairID, pairID).Scan(&st.Links, &st.Pending)
+	if err != nil {
+		return PairStatus{}, fmt.Errorf("state: status for %s: %w", pairID, err)
+	}
+
+	var r Run
+	var finishedAt string
+	err = s.db.QueryRowContext(ctx, `SELECT finished_at, planned, applied, error FROM run WHERE pair_id = ?`, pairID).
+		Scan(&finishedAt, &r.Planned, &r.Applied, &r.Error)
+	if errors.Is(err, sql.ErrNoRows) {
+		return st, nil
+	}
+	if err != nil {
+		return PairStatus{}, fmt.Errorf("state: status for %s: %w", pairID, err)
+	}
+	if r.FinishedAt, err = parseTime(finishedAt); err != nil {
+		return PairStatus{}, fmt.Errorf("state: last run for %s: %w", pairID, err)
+	}
+	st.LastRun = &r
+	return st, nil
 }
 
 // execer is the part of *sql.DB and *sql.Tx the write helpers need.
