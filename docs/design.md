@@ -146,11 +146,13 @@ For each pair, independently:
    | --- | --- | --- | --- |
    | changed | unchanged | Write hub values to the target. | Same. |
    | unchanged | changed | Write target values to the hub. | Write hub values back to the target. |
-   | changed | changed | Hub wins. Write hub values to the target and log the conflict. | Same. |
+   | changed | changed | Merge field by field (below). | Same. |
    | gone | present | Delete the target item. | Same. |
    | present | gone, hub completed | Unlink. | Unlink. |
    | present | gone, hub incomplete | Complete the reminder. | Re-create the target item. |
    | gone | gone | Unlink. | Unlink. |
+
+   Changes are merged field by field, comparing each side to its own baseline. If only one side changed a field, that change wins (on a one-way pair, a change made on the target is reverted). If both sides changed the same field to different values, the hub's value wins and the conflict is logged. So a title edited in Reminders and a check-off on the frame both go through, with no conflict.
 
 1. Each incomplete hub item without a link: create it on the target and link it. Completed hub items without a link are never copied.
 1. Two-way only: each incomplete target item without a link is created in the hub and linked. In one-way mode they're left alone, since people may add things on the frame directly.
@@ -166,12 +168,12 @@ A pair with no links yet may have the same things on both sides, such as "Milk" 
 
 ### Crash recovery
 
-Before creating an item on either side, the engine writes a `pending_create` row, and deletes it in the same transaction that writes the link. If the process dies after the API call but before that commit, the next run finds the row. It then looks for exactly one unlinked item on that side with the same title, created after `started_at` (Skylight's `created_at` or Reminders' `CreatedAt`). If it finds one, it links it. If it finds none, it drops the row and the normal rules create the item again. If it finds more than one, it drops the row, links nothing, and logs a warning. The worst case is one duplicate item per crash, never a loop.
+Before creating an item on either side, the engine writes a `pending_create` row, and deletes it in the same transaction that writes the link. If the process dies after the API call but before that commit, the next run finds the row. It then looks for exactly one unlinked item on that side with the same title, created after `started_at` (Skylight's `created_at` or Reminders' `CreatedAt`). If it finds one, it links it, even if the source item has been deleted since: the link then has a missing side, and the normal rules delete or complete the copy instead of copying it back. The source side's baseline is the title that was copied, so an edit made to the source in the meantime still syncs. Items matched this way must have been created no more than a minute before `started_at`, to allow for clock skew between the Mac and the target. If it finds none, it drops the row and the normal rules create the item again. If it finds more than one, it drops the row, links nothing, and logs a warning. The worst case is one duplicate item per crash, never a loop.
 
 ## Safety limits
 
 - **Dry run.** `remindersync sync --dry-run` prints the plan for each pair and writes nothing.
-- **Mass-change limit.** If a pair's plan deletes or completes more than `max(5, 25%)` of its linked items, on either side, the pair is skipped and reported. `sync --force` runs it anyway. For `Groceries` with, say, 20 active links, that's anything over 5. Clearing a whole list on the frame trips it, which is the point.
+- **Mass-change limit.** If a pair's plan deletes more than `max(5, 25%)` of its linked target items, or completes that many hub items because their target items were deleted, the pair is skipped and reported. `sync --force` runs it anyway. For `Groceries` with, say, 20 active links, that's anything over 5. Clearing a whole list on the frame trips it, which is the point. Checking items off on either side doesn't count, since that's ordinary use.
 - **Reads are all or nothing.** An error, a 5xx or a timeout aborts the pair. A missing list aborts the pair. Neither is ever read as "everything was deleted".
 - **One process at a time.** An exclusive `flock` on a lock file next to the database stops the daemon and a manual `sync` from running at once.
 - **No writes to fields a target lacks.** Hub updates set only `Title` and `Completed`.
