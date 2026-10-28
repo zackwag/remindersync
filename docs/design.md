@@ -104,7 +104,9 @@ If a pair's Reminders list or target list can't be found by ID, the pair is skip
 
 ## State
 
-A SQLite database in `os.UserCacheDir()/remindersync/state.db` holds one row per linked item:
+A SQLite database in `os.UserConfigDir()/remindersync/state.db` (`~/Library/Application Support/remindersync/state.db` on macOS) holds one row per linked item. It's deliberately not in a cache directory: macOS can purge `~/Library/Caches`, and losing state turns every pair's next sync into a first sync, where deletes made in the meantime are missed and repeated titles get copied again.
+
+The schema:
 
 ```sql
 CREATE TABLE link (
@@ -201,7 +203,7 @@ Other commands: `remindersync sync [--pair NAME] [--dry-run] [--force]` runs onc
 | Deleting the reminder when its target item is deleted | Clearing items on the frame would destroy hub data. Completing the reminder can be undone. Deleting a reminder in the hub still deletes the target item, because the hub is the source of truth. |
 | A JSON state file | Would work at this size, since 500 links is about 60 KB. But SQLite gives per-item transactions (the crash-recovery guarantee), safe concurrent reads for `status`, and a lock, for one dependency. |
 | `mattn/go-sqlite3` | Needs cgo. `modernc.org/sqlite` is pure Go, so Linux CI keeps building without a C toolchain. EventKit already needs cgo on darwin, but that's the only place. |
-| Pairs stored in SQLite | Config is what you meant to happen, and state is a cache of what happened. Keeping them apart means `state.db` can be deleted and rebuilt with a first sync, and `config.toml` can be read and edited by hand. |
+| Pairs stored in SQLite | Config is what you meant to happen, and state is a cache of what happened. Keeping them apart means `state.db` can be deleted as a last resort and rebuilt with a first sync, and `config.toml` can be read and edited by hand. |
 
 ## Open questions
 
