@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/BRO3886/go-eventkit v0.16.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/zalando/go-keyring v0.2.8
 	modernc.org/sqlite v1.61.0
 )

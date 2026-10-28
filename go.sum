@@ -1,5 +1,7 @@
 github.com/BRO3886/go-eventkit v0.16.0 h1:lQmD6MQZsRfMJj5sfarbj90/XTitglzyqCnIIZivgpE=
 github.com/BRO3886/go-eventkit v0.16.0/go.mod h1:672VezZhNB1eX7GOph9fGmR7d3rIP0/HrMv7fss4zAk=
+github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
+github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/danieljoos/wincred v1.2.3 h1:v7dZC2x32Ut3nEfRH+vhoZGvN72+dQ/snVXo/vMFLdQ=
 github.com/danieljoos/wincred v1.2.3/go.mod h1:6qqX0WNrS4RzPZ1tnroDzq9kY3fu1KwE7MRLQK4X0bs=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
