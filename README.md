@@ -13,8 +13,7 @@ Early. What's here so far:
 - `remindersync reminders ...`: CLI commands for reading Apple Reminders lists through EventKit (macOS only).
 - `remindersync config`: an interactive menu for adding and removing sync pairs.
 - `remindersync sync` and `remindersync status`: sync every pair once and see how each pair stands.
-
-There's no daemon yet, so syncing only happens when you run `sync`.
+- `remindersync daemon`, `install` and `uninstall`: keep every pair in sync in the background, started at login by launchd.
 
 ## Set up sync pairs
 
@@ -35,6 +34,19 @@ go run ./cmd/remindersync status
 Run `-dry-run` first, especially before a pair's first sync: it prints every change it would make and writes nothing. On a first sync, incomplete items whose titles appear exactly once on each side are linked rather than copied, and completed reminders are never copied. `-pair NAME` syncs one pair. If a sync would delete or complete more than `max(5, 25%)` of a pair's linked items, that pair is skipped until you rerun with `-force`. A pair that fails doesn't stop the others. Only one sync runs at a time; a dry run can run alongside it.
 
 Sync state lives in `~/Library/Application Support/remindersync/state.db`. See [docs/design.md](docs/design.md) for how changes are detected and merged.
+
+## Run in the background
+
+```sh
+go run ./cmd/remindersync install
+go run ./cmd/remindersync status
+```
+
+`install` copies the binary to `~/Library/Application Support/remindersync/bin/remindersync`, writes a launchd agent to `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, so `remindersync daemon` runs now and at every login. The daemon syncs when Reminders changes (after 2 s of quiet) and every minute to pick up changes on Skylight (`-poll` changes that). It logs changes and errors to `~/Library/Logs/remindersync/daemon.log`, and `status` shows whether it's running.
+
+The first time, macOS asks whether `remindersync` can access your reminders, and `install` waits for you to click Allow. The permission is tied to that exact build, so after upgrading, run `install` again and allow the new build. Until you do, the daemon waits on the prompt and `status` says so.
+
+`uninstall` stops the daemon and removes the agent and the installed binary. It keeps your pairs, state and log, so `sync` still works. A manual `sync` while the daemon runs is fine: they take turns.
 
 ## Reminders
 

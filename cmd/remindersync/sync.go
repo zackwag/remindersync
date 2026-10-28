@@ -93,7 +93,7 @@ func runSync(ctx context.Context, args []string) error {
 func runStatus(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: remindersync status [flags]\n\nShow each pair's linked items and last sync.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: remindersync status [flags]\n\nShow what the daemon is doing, and each pair's linked items and last sync.\n\n")
 		fs.PrintDefaults()
 	}
 	var p paths

@@ -1,6 +1,6 @@
 // Package state is the SQLite-backed [engine.State]: one row per linked item
 // and one per create in flight, scoped by pair ID, plus each pair's last run
-// for `remindersync status`.
+// and what the daemon is doing, for `remindersync status`.
 package state
 
 import (
@@ -48,6 +48,12 @@ var migrations = []string{
 		planned     INTEGER NOT NULL,
 		applied     INTEGER NOT NULL,
 		error       TEXT NOT NULL
+	);`,
+	`CREATE TABLE daemon (
+		id    INTEGER PRIMARY KEY CHECK (id = 1),
+		pid   INTEGER NOT NULL,
+		state TEXT NOT NULL,
+		since TEXT NOT NULL
 	);`,
 }
 
@@ -301,6 +307,63 @@ func (s *DB) Status(ctx context.Context, pairID string) (PairStatus, error) {
 	}
 	st.LastRun = &r
 	return st, nil
+}
+
+// DaemonState is what the daemon was last doing.
+type DaemonState string
+
+// Daemon states.
+const (
+	// DaemonWaitingForAccess means the daemon has asked for Reminders access
+	// and macOS hasn't answered, which usually means a prompt is on screen.
+	DaemonWaitingForAccess DaemonState = "waiting-for-access"
+	DaemonRunning          DaemonState = "running"
+	// DaemonAccessDenied means Reminders access was refused and the daemon
+	// exited.
+	DaemonAccessDenied DaemonState = "access-denied"
+	DaemonStopped      DaemonState = "stopped"
+)
+
+// Daemon is the daemon's last reported state.
+type Daemon struct {
+	PID   int
+	State DaemonState
+	// Since is when it entered State.
+	Since time.Time
+}
+
+// SetDaemon records the daemon's state, replacing the previous one.
+func (s *DB) SetDaemon(ctx context.Context, d Daemon) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO daemon (id, pid, state, since) VALUES (1, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET
+			pid = excluded.pid,
+			state = excluded.state,
+			since = excluded.since`,
+		d.PID, string(d.State), formatTime(d.Since))
+	if err != nil {
+		return fmt.Errorf("state: record daemon state: %w", err)
+	}
+	return nil
+}
+
+// Daemon returns the daemon's last reported state, or nil if it has never
+// run.
+func (s *DB) Daemon(ctx context.Context) (*Daemon, error) {
+	var d Daemon
+	var state, since string
+	err := s.db.QueryRowContext(ctx, `SELECT pid, state, since FROM daemon WHERE id = 1`).Scan(&d.PID, &state, &since)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("state: read daemon state: %w", err)
+	}
+	if d.Since, err = parseTime(since); err != nil {
+		return nil, fmt.Errorf("state: daemon state time: %w", err)
+	}
+	d.State = DaemonState(state)
+	return &d, nil
 }
 
 // execer is the part of *sql.DB and *sql.Tx the write helpers need.

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 )
 
 const usage = `Usage: remindersync <command> [arguments]
@@ -17,7 +18,10 @@ const usage = `Usage: remindersync <command> [arguments]
 Commands:
   config      Add and remove sync pairs
   sync        Sync every pair once (-dry-run to preview)
-  status      Show each pair's linked items and last sync
+  status      Show the daemon and each pair's linked items and last sync
+  daemon      Sync whenever Reminders changes, and poll targets
+  install     Run the daemon at login with launchd
+  uninstall   Stop the daemon and remove it from launchd
   reminders   Read Apple Reminders lists (macOS only)
   skylight    Log in to Skylight and work with its lists directly
 
@@ -30,7 +34,8 @@ func main() {
 
 // realMain holds main's body so deferred calls run before os.Exit.
 func realMain() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// launchd stops the daemon with SIGTERM.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx, os.Args[1:]); err != nil {
@@ -56,6 +61,12 @@ func run(ctx context.Context, args []string) error {
 		return runSync(ctx, args[1:])
 	case "status":
 		return runStatus(ctx, args[1:])
+	case "daemon":
+		return runDaemon(ctx, args[1:])
+	case "install":
+		return runInstall(ctx, args[1:])
+	case "uninstall":
+		return runUninstall(ctx, args[1:])
 	case "reminders":
 		return runReminders(ctx, args[1:])
 	case "skylight":
