@@ -58,6 +58,15 @@ go test -race ./...
 
 CI also runs `golangci-lint` (see `.golangci.yml`), ShellCheck, and actionlint.
 
+### End-to-end test
+
+`internal/e2e` syncs a real Reminders list with a real Skylight list. It only builds with the `integration` tag and needs a Mac with Reminders access and a logged-in Skylight account, so CI doesn't run it. It creates a temporary Reminders list, briefly puts items on the Skylight list you point it at, and deletes both when it's done:
+
+```sh
+REMINDERSYNC_E2E_SKYLIGHT_FRAME=FRAME_ID REMINDERSYNC_E2E_SKYLIGHT_LIST=LIST_ID \
+  go test -tags integration -v ./internal/e2e/
+```
+
 ## License
 
 [MIT](LICENSE)
