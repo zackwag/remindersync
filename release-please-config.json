@@ -30,7 +30,8 @@
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "initial-version": "0.1.0"
     }
   }
 }
