@@ -34,9 +34,12 @@ type memStore struct {
 	// normalize, if set, rewrites titles on write, like a target that trims
 	// whitespace.
 	normalize func(string) string
-	// repeating holds the IDs of items that behave like repeating reminders:
-	// completing one leaves it open and adds a completed copy, as EventKit
-	// does.
+	// dates makes the store keep due dates, like Reminders and Skylight
+	// chores. Without it, Due is dropped on write, like a Skylight list.
+	dates bool
+	// repeating holds the IDs of items that behave like weekly repeating
+	// reminders: completing one leaves it open, moves its due date a week
+	// on and adds a completed copy, as EventKit does.
 	repeating map[string]bool
 	// itemsErr fails reads.
 	itemsErr error
@@ -76,12 +79,16 @@ func (m *memStore) Items(context.Context) ([]Item, error) {
 	return slices.Clone(m.items), nil
 }
 
-func (m *memStore) Create(_ context.Context, title string) (Item, error) {
+func (m *memStore) Create(_ context.Context, from Item) (Item, error) {
 	if m.createErr != nil {
 		return Item{}, m.createErr
 	}
-	m.writes = append(m.writes, "create "+title)
-	it := m.add(m.norm(title), false)
+	m.writes = append(m.writes, "create "+from.Title)
+	it := m.add(m.norm(from.Title), false)
+	if m.dates {
+		m.items[len(m.items)-1].Due = from.Due
+		it.Due = from.Due
+	}
 	if m.loseCreateResponse {
 		return Item{}, errLostResponse
 	}
@@ -100,9 +107,16 @@ func (m *memStore) Update(_ context.Context, id string, ch Change) (Item, error)
 	if ch.Title != nil {
 		m.items[i].Title = m.norm(*ch.Title)
 	}
+	if ch.Due != nil && m.dates {
+		m.items[i].Due = *ch.Due
+	}
 	if ch.Completed != nil {
 		if *ch.Completed && m.repeating[id] {
 			m.add(m.items[i].Title, true)
+			m.items[len(m.items)-1].Due = m.items[i].Due
+			if d, err := time.Parse(DateLayout, m.items[i].Due); err == nil {
+				m.items[i].Due = d.AddDate(0, 0, 7).Format(DateLayout)
+			}
 		} else {
 			m.items[i].Completed = *ch.Completed
 		}
@@ -129,6 +143,16 @@ func (m *memStore) set(t *testing.T, id string, title string, completed bool) {
 		t.Fatalf("set %s: not found", id)
 	}
 	m.items[i].Title, m.items[i].Completed = title, completed
+}
+
+// setDue changes an item's due date directly, as if someone edited it.
+func (m *memStore) setDue(t *testing.T, id, due string) {
+	t.Helper()
+	i := m.index(id)
+	if i < 0 {
+		t.Fatalf("setDue %s: not found", id)
+	}
+	m.items[i].Due = due
 }
 
 // remove deletes an item directly, as if someone deleted it by hand.

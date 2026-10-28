@@ -4,14 +4,14 @@ How ReminderSync keeps an Apple Reminders list and a target list (starting with 
 
 ## Goals
 
-- Pair one Reminders list with one target list, set up through an interactive wizard like `rclone config`.
-- Sync title and completion both ways, or one way from Reminders when the target should just mirror it.
+- Pair one Reminders list with one target list, or with one person's Skylight chores, set up through an interactive wizard like `rclone config`.
+- Sync title and completion both ways, plus due dates for chores, or one way from Reminders when the target should just mirror it.
 - Let one Reminders list feed several targets.
 - Never lose data or create runaway duplicates. The setup this replaces (the iPhone Companion app's Reminders Sync into Home Assistant) produced 762 copies of one Skylight chore, so this is the requirement everything else gives way to.
 
 ## Non-goals
 
-- Syncing fields a target can't hold. Skylight list items only have a label and a status, so notes, due dates, priority, URLs, tags and alarms stay in Reminders and are never touched.
+- Syncing fields a target can't hold. Skylight list items only have a label and a status, and chores add a date, so notes, priority, URLs, tags and alarms stay in Reminders and are never touched, and due dates only sync with chores.
 - Target-to-target sync. Targets only talk to the hub.
 - Running anywhere but a Mac signed into the iCloud account. The tool uses EventKit, not iCloud's web APIs.
 
@@ -29,6 +29,10 @@ From the spikes in #1 and #5, against real data:
 | go-eventkit's `WithListID` is broken in v0.16.0. | Reminders are filtered by `ListID` in our code. |
 | `Groceries` has 489 reminders, all completed. | Completed history must not be copied to a target. |
 | A plain binary started by launchd gets its own Reminders permission prompt, under the binary's name. It's tied to that exact build: an identical rebuild at the same path asked again, and until someone answers, `eventkit.New()` blocks. A run from Terminal is granted through Terminal, so it can't approve the daemon. | No `.app` bundle is needed. `install` loads the agent and waits while you answer the prompt, and has to be run again after an upgrade. The daemon records that it's waiting before it asks, so `status` can say why nothing is syncing. |
+| Skylight chores: `POST /chores` with `summary`, `start` and `category_id` creates a one-off chore and returns it. `PUT /chores/{id}` changes `summary`, `start` and `status` (`complete` or `pending`, which reopens it). `DELETE` returns 404 once it's gone. `GET /chores?after=&before=` lists them frame-wide, `category_id` filters to one person, and `include_late` adds pending chores from before `after`. | A chore store covers one category and reads one window per sync. |
+| A completed chore is listed under the day it was completed, not its start date. | The read window starts 30 days back, so a chore checked off on the frame stays visible to the sync for a month. |
+| Chores have no `created_at`. | Crash recovery can't match an interrupted chore create, so a crash at that moment can leave one duplicate chore. It can't loop. |
+| go-eventkit always writes a time of day with a due date. | A date written to Reminders keeps the reminder's existing time, and a reminder that had only a date gets midnight. |
 | Completing a repeating reminder through go-eventkit works like Reminders.app: the reminder keeps its ID, stays open and moves to its next due date, and a completed copy with a new ID is added. `UpdateReminder` returns the open reminder. | Completing a hub item can leave it open. The target item has to be reopened to match (see [Repeating reminders](#repeating-reminders)). |
 
 ## Architecture
@@ -46,26 +50,27 @@ type Item struct {
     ID        string
     Title     string
     Completed bool
+    Due       string // YYYY-MM-DD, or "" for none
 }
 
 type Store interface {
     // Items returns every item in the list, completed ones included. It
     // either returns the complete list or an error, never a partial list.
     Items(ctx context.Context) ([]Item, error)
-    Create(ctx context.Context, title string) (Item, error)
+    Create(ctx context.Context, from Item) (Item, error)
     // Update changes only the non-nil fields and returns the item as stored.
-    Update(ctx context.Context, id string, title *string, completed *bool) (Item, error)
+    Update(ctx context.Context, id string, change Change) (Item, error)
     Delete(ctx context.Context, id string) error
 }
 ```
 
-`Item` holds only the fields every store supports. When a future target can hold more, such as due dates, `Item` grows a field, and a capability set on each store says which fields to compare and write for that pair. Skylight's set is title and completion.
+Title and completion sync on every pair. Due dates sync only on pairs whose target keeps a date on every item, which today means Skylight chores (`Pair.Dates`). On other pairs the hub's dates are dropped before planning, so they're never compared or written.
 
 Packages:
 
 - `skylight`: the API client (exists).
 - `internal/reminders`: a `Store` over go-eventkit for one list ID.
-- `internal/target/skylight`: a `Store` over the Skylight client for one frame and list.
+- `internal/target/skylight`: `Store` over one list on a frame, and `ChoreStore` over one category's chores.
 - `internal/config`: reading and writing pairs.
 - `internal/state`: the SQLite state store.
 - `internal/engine`: the sync algorithm. It knows nothing about EventKit or Skylight, so it can be tested against in-memory stores.
@@ -174,6 +179,15 @@ Deleting the target item works the same way. The sync completes the reminder and
 
 Targets don't show due dates, so a repeating item reappears unchecked straight away rather than when its next occurrence is due.
 
+### Due dates and chores
+
+A chore pair syncs a Reminders list with one person's (one category's) chores. Each open reminder becomes one one-off chore on its due date, and dates merge field by field like titles. What's special:
+
+- **No due date:** an open reminder with no date gets today's date as a stand-in. Its chore moves to the new today each day, and a date changed on the frame is put back, since the stand-in is never written to Reminders. Once the reminder is done it stops moving.
+- **Horizon:** reminders due more than 365 days out are left out, as if they weren't in the list, so a chore appears once its date is within a year. The chore read covers 30 days back to 395 days ahead, plus overdue chores. A chore moved past that on the frame looks deleted, which completes its reminder.
+- **Repeating reminders:** one chore, on the current occurrence's date. Checking it off completes the reminder, EventKit moves the reminder to its next date, and the same step reopens the chore and moves it to that date. This extends the rule in [Repeating reminders](#repeating-reminders): fields the hub changed on its own while being updated go to the target too.
+- **Chores the sync didn't make:** repeating and up-for-grabs chores are left alone. A one-off chore added to the person's chart on the frame is copied to Reminders with its date, on a two-way pair.
+
 ### First sync
 
 A pair with no links yet may have the same things on both sides, such as "Milk" in Reminders and on the frame. Creating both would duplicate them. So on the first sync only, incomplete items are matched by exact title, one to one, and linked without writing anything. Items with ambiguous titles (the same title more than once on a side) aren't matched and fall through to the normal create rules. This is the only place titles are compared, and `remindersync sync -dry-run` shows the matches before anything is written.
@@ -233,6 +247,7 @@ Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, 
 - **A permission that survives upgrades.** Signing the binary with a self-signed certificate from the login keychain, instead of the linker's ad hoc signature, should make the permission follow the certificate instead of the build. Untested. Until then, `install` after each upgrade covers it.
 - **Log rotation.** The daemon's log only grows. Quiet output keeps that slow, but a target that fails every poll adds a few lines a minute.
 - **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
+- **Dates written to Reminders get a time.** go-eventkit always writes hours, minutes and seconds with a due date, so a reminder that only had a date gets midnight when its chore is moved on the frame or when a chore added on the frame is copied to Reminders. Writing a date only would need a go-eventkit change.
 - **Skylight `draft` items.** Items have a `draft` flag. Should drafts be skipped?
 - **Skylight rate limits.** Unknown. The first sync of a big list writes sequentially, with no parallel requests.
 - **`WatchChanges` latency for shared lists.** How fast do changes made on another device show up?

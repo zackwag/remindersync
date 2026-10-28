@@ -145,7 +145,7 @@ func TestItemsErrors(t *testing.T) {
 func TestCreate(t *testing.T) {
 	ctx := context.Background()
 	c := &fakeClient{}
-	it, err := NewStore(c, frameID, listID).Create(ctx, "Milk")
+	it, err := NewStore(c, frameID, listID).Create(ctx, engine.Item{Title: "Milk"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestCreate(t *testing.T) {
 	}
 
 	c.addErr = errors.New("422")
-	if _, err := NewStore(c, frameID, listID).Create(ctx, "Eggs"); !errors.Is(err, c.addErr) {
+	if _, err := NewStore(c, frameID, listID).Create(ctx, engine.Item{Title: "Eggs"}); !errors.Is(err, c.addErr) {
 		t.Errorf("err = %v", err)
 	}
 }

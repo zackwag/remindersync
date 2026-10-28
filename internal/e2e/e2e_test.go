@@ -106,7 +106,7 @@ func TestRealSync(t *testing.T) {
 
 	milk := prefix + " milk"
 	t.Log("reminder created in Reminders reaches Skylight")
-	if _, err := hub.Create(ctx, milk); err != nil {
+	if _, err := hub.Create(ctx, engine.Item{Title: milk}); err != nil {
 		t.Fatal(err)
 	}
 	sync()

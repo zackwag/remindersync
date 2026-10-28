@@ -23,7 +23,7 @@ type fakeClient struct {
 	reminders []eventkit.Reminder
 	next      int
 
-	listsErr, remindersErr, createErr, updateErr error
+	listsErr, remindersErr, reminderErr, createErr, updateErr error
 	// createInList, if set, is the list ID new reminders land in, regardless
 	// of the name asked for.
 	createInList string
@@ -61,6 +61,18 @@ func (f *fakeClient) Reminders(opts ...eventkit.ListOption) ([]eventkit.Reminder
 	return slices.Clone(f.reminders), f.remindersErr
 }
 
+func (f *fakeClient) Reminder(id string) (*eventkit.Reminder, error) {
+	if f.reminderErr != nil {
+		return nil, f.reminderErr
+	}
+	i := slices.IndexFunc(f.reminders, func(r eventkit.Reminder) bool { return r.ID == id })
+	if i < 0 {
+		return nil, eventkit.ErrNotFound
+	}
+	r := f.reminders[i]
+	return &r, nil
+}
+
 func (f *fakeClient) CreateReminder(input eventkit.CreateReminderInput) (*eventkit.Reminder, error) {
 	f.creates = append(f.creates, input)
 	if f.createErr != nil {
@@ -75,6 +87,8 @@ func (f *fakeClient) CreateReminder(input eventkit.CreateReminderInput) (*eventk
 		}
 	}
 	r := f.add(list, input.Title, false)
+	f.reminders[len(f.reminders)-1].DueDate = input.DueDate
+	r.DueDate = input.DueDate
 	return &r, nil
 }
 
@@ -92,6 +106,12 @@ func (f *fakeClient) UpdateReminder(id string, input eventkit.UpdateReminderInpu
 	}
 	if input.Completed != nil {
 		f.reminders[i].Completed = *input.Completed
+	}
+	if input.DueDate != nil {
+		f.reminders[i].DueDate = input.DueDate
+	}
+	if input.ClearDueDate {
+		f.reminders[i].DueDate = nil
 	}
 	r := f.reminders[i]
 	return &r, nil
@@ -164,7 +184,7 @@ func TestItemsErrors(t *testing.T) {
 		if _, err := s.Items(canceled); !errors.Is(err, context.Canceled) {
 			t.Errorf("Items err = %v", err)
 		}
-		if _, err := s.Create(canceled, "x"); !errors.Is(err, context.Canceled) {
+		if _, err := s.Create(canceled, engine.Item{Title: "x"}); !errors.Is(err, context.Canceled) {
 			t.Errorf("Create err = %v", err)
 		}
 		if _, err := s.Update(canceled, "x", engine.Change{}); !errors.Is(err, context.Canceled) {
@@ -182,7 +202,7 @@ func TestCreate(t *testing.T) {
 	t.Run("uses the list's current name", func(t *testing.T) {
 		c := newFakeClient()
 		c.lists[0].Title = "Groceries 🛒"
-		it, err := NewStore(c, listID).Create(ctx, "Milk")
+		it, err := NewStore(c, listID).Create(ctx, engine.Item{Title: "Milk"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +214,7 @@ func TestCreate(t *testing.T) {
 	t.Run("refuses a name another list shares", func(t *testing.T) {
 		c := newFakeClient()
 		c.lists = append(c.lists, eventkit.List{ID: "LIST-OLD", Title: "groceries"})
-		_, err := NewStore(c, listID).Create(ctx, "Milk")
+		_, err := NewStore(c, listID).Create(ctx, engine.Item{Title: "Milk"})
 		if !errors.Is(err, ErrAmbiguousList) {
 			t.Fatalf("err = %v, want ErrAmbiguousList", err)
 		}
@@ -206,7 +226,7 @@ func TestCreate(t *testing.T) {
 	t.Run("cleans up a reminder that landed in the wrong list", func(t *testing.T) {
 		c := newFakeClient()
 		c.createInList = "LIST-FAMILY"
-		_, err := NewStore(c, listID).Create(ctx, "Milk")
+		_, err := NewStore(c, listID).Create(ctx, engine.Item{Title: "Milk"})
 		if err == nil {
 			t.Fatal("want an error")
 		}
@@ -219,12 +239,12 @@ func TestCreate(t *testing.T) {
 		boom := errors.New("eventkit failed")
 		c := newFakeClient()
 		c.createErr = boom
-		if _, err := NewStore(c, listID).Create(ctx, "Milk"); !errors.Is(err, boom) {
+		if _, err := NewStore(c, listID).Create(ctx, engine.Item{Title: "Milk"}); !errors.Is(err, boom) {
 			t.Errorf("err = %v", err)
 		}
 		c = newFakeClient()
 		c.lists = nil
-		if _, err := NewStore(c, listID).Create(ctx, "Milk"); !errors.Is(err, ErrListNotFound) {
+		if _, err := NewStore(c, listID).Create(ctx, engine.Item{Title: "Milk"}); !errors.Is(err, ErrListNotFound) {
 			t.Errorf("err = %v, want ErrListNotFound", err)
 		}
 	})
@@ -274,5 +294,78 @@ func TestDelete(t *testing.T) {
 	}
 	if err := s.Delete(ctx, "LOCKED"); err == nil {
 		t.Error("want the per-reminder error")
+	}
+}
+
+func TestDueDates(t *testing.T) {
+	ctx := context.Background()
+	c := newFakeClient()
+	s := NewStore(c, listID)
+	local := func(y int, m time.Month, d, h, min int) time.Time {
+		return time.Date(y, m, d, h, min, 0, 0, time.Local)
+	}
+
+	// Created with a date: midnight local.
+	it, err := s.Create(ctx, engine.Item{Title: "Pay rent", Due: "2026-11-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := local(2026, 11, 1, 0, 0); c.creates[0].DueDate == nil || !c.creates[0].DueDate.Equal(want) || it.Due != "2026-11-01" {
+		t.Errorf("created with %v, returned %+v", c.creates[0].DueDate, it)
+	}
+
+	// Moving a reminder that has a time keeps the time.
+	timed := c.add(listID, "Call the vet", false)
+	c.reminders[len(c.reminders)-1].DueDate = ptr(local(2026, 11, 2, 9, 30).UTC())
+	it, err = s.Update(ctx, timed.ID, engine.Change{Due: ptr("2026-11-04")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := local(2026, 11, 4, 9, 30); !c.updates[timed.ID].DueDate.Equal(want) || it.Due != "2026-11-04" {
+		t.Errorf("sent %v, returned %+v; want %v", c.updates[timed.ID].DueDate, it, want)
+	}
+
+	// A reminder with no date gets midnight.
+	undated := c.add(listID, "Haircut", false)
+	if _, err := s.Update(ctx, undated.ID, engine.Change{Due: ptr("2026-11-05")}); err != nil {
+		t.Fatal(err)
+	}
+	if want := local(2026, 11, 5, 0, 0); !c.updates[undated.ID].DueDate.Equal(want) {
+		t.Errorf("sent %v, want %v", c.updates[undated.ID].DueDate, want)
+	}
+
+	// An empty date clears it.
+	it, err = s.Update(ctx, undated.ID, engine.Change{Due: ptr("")})
+	if err != nil || !c.updates[undated.ID].ClearDueDate || it.Due != "" {
+		t.Errorf("clear: sent %+v, returned %+v, %v", c.updates[undated.ID], it, err)
+	}
+
+	// Items reports the local date.
+	items, err := s.Items(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items[1].Due != "2026-11-04" {
+		t.Errorf("items = %+v", items)
+	}
+}
+
+func TestDueDateErrors(t *testing.T) {
+	ctx := context.Background()
+	c := newFakeClient()
+	s := NewStore(c, listID)
+	r := c.add(listID, "Milk", false)
+
+	if _, err := s.Create(ctx, engine.Item{Title: "Milk", Due: "soon"}); err == nil {
+		t.Error("create with a bad date: want an error")
+	}
+	if _, err := s.Update(ctx, r.ID, engine.Change{Due: ptr("soon")}); err == nil {
+		t.Error("update with a bad date: want an error")
+	}
+	if _, err := s.Update(ctx, "missing", engine.Change{Due: ptr("2026-11-01")}); !errors.Is(err, eventkit.ErrNotFound) {
+		t.Errorf("update of a missing reminder: err = %v", err)
+	}
+	if len(c.creates) != 0 || len(c.updates) != 0 {
+		t.Errorf("wrote anyway: creates %v, updates %v", c.creates, c.updates)
 	}
 }

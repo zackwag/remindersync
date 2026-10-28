@@ -24,6 +24,11 @@ const (
 	// recoverySkew allows for the target's clock running behind ours when
 	// matching an interrupted create by its CreatedAt.
 	recoverySkew = time.Minute
+
+	// HorizonDays limits a pair with dates to hub items due within this many
+	// days. Further out isn't useful on a chore chart, and it bounds how far
+	// ahead a target has to read.
+	HorizonDays = 365
 )
 
 // Pair is one sync pair: a hub list, a target list and a direction.
@@ -33,6 +38,11 @@ type Pair struct {
 	Direction Direction
 	Hub       Store
 	Target    Store
+	// Dates is set when the target keeps a due date on every item, like
+	// Skylight chores. Due dates are then synced, hub items due beyond
+	// [HorizonDays] are left out, and open hub items with no due date go on
+	// today and move forward each day. Otherwise due dates are ignored.
+	Dates bool
 }
 
 // Options adjusts a sync.
@@ -72,6 +82,7 @@ func Sync(ctx context.Context, p Pair, st State, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("read hub: %w", err)
 	}
+	hubItems = s.hubItems(hubItems)
 	targetItems, err := p.Target.Items(ctx)
 	if err != nil {
 		return Result{}, fmt.Errorf("read target: %w", err)
@@ -146,6 +157,34 @@ type syncer struct {
 	log   *slog.Logger
 }
 
+// hubItems prepares the hub's items for planning: see [Pair.Dates].
+func (s *syncer) hubItems(items []Item) []Item {
+	out := make([]Item, 0, len(items))
+	horizon := s.now().Local().AddDate(0, 0, HorizonDays).Format(DateLayout)
+	for _, it := range items {
+		it = s.hubView(it)
+		if s.pair.Dates && it.Due > horizon {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// hubView is a hub item as the planner sees it: without a due date when the
+// target doesn't keep dates, and on today when it does and the item is open
+// with none.
+func (s *syncer) hubView(it Item) Item {
+	switch {
+	case !s.pair.Dates:
+		it.Due = ""
+	case it.Due == "" && !it.Completed:
+		it.Due = s.now().Local().Format(DateLayout)
+		it.floating = true
+	}
+	return it
+}
+
 func (s *syncer) apply(ctx context.Context, a Action) error {
 	switch a.Kind {
 	case ActionUpdate:
@@ -156,7 +195,8 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 			if h, err = s.pair.Hub.Update(ctx, h.ID, a.HubChange); err != nil {
 				return err
 			}
-			if kept := overruled(a.HubChange, h); !kept.IsZero() {
+			h = s.hubView(h)
+			if kept := overruled(a.HubChange, a.Hub, h); !kept.IsZero() {
 				s.log.Info("hub kept its own value; writing it to the target", "item", h.Title, "hub", kept.String())
 				targetChange = targetChange.with(kept)
 			}
@@ -196,19 +236,26 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 	return fmt.Errorf("unknown action kind %q", a.Kind)
 }
 
-// overruled returns the fields of ch that the hub didn't take, set to the
-// values it kept. Completing a repeating reminder is the case that matters:
-// EventKit moves it to its next due date and leaves it open, so the target
-// item that was checked off has to be reopened to match.
-func overruled(ch Change, h Item) Change {
+// overruled returns the hub's values for the fields where an update didn't
+// end up as asked: fields in ch that the hub didn't take, and fields not in
+// ch that changed anyway. Completing a repeating reminder is the case that
+// matters: EventKit leaves it open and moves its due date to the next
+// occurrence, so the target item that was checked off has to be reopened and
+// moved to match.
+func overruled(ch Change, before, after Item) Change {
 	var out Change
-	if ch.Title != nil && *ch.Title != h.Title {
-		out.Title = &h.Title
-	}
-	if ch.Completed != nil && *ch.Completed != h.Completed {
-		out.Completed = &h.Completed
-	}
+	out.Title = kept(ch.Title, before.Title, after.Title)
+	out.Completed = kept(ch.Completed, before.Completed, after.Completed)
+	out.Due = kept(ch.Due, before.Due, after.Due)
 	return out
+}
+
+// kept returns after when a field didn't end up as asked, or nil.
+func kept[T comparable](asked *T, before, after T) *T {
+	if (asked != nil && *asked != after) || (asked == nil && after != before) {
+		return &after
+	}
+	return nil
 }
 
 // create copies source to the given side, journaling the create first so an
@@ -222,11 +269,14 @@ func (s *syncer) create(ctx context.Context, side Side, source Item) error {
 	if side == SideHub {
 		store = s.pair.Hub
 	}
-	created, err := store.Create(ctx, source.Title)
+	created, err := store.Create(ctx, source)
 	if err != nil {
 		// The pending create stays, and the next sync's recovery decides
 		// whether the item was made after all.
 		return err
+	}
+	if side == SideHub {
+		created = s.hubView(created)
 	}
 	return s.state.FinishCreate(ctx, s.pair.ID, side, source.ID, s.orient(side, source, created))
 }

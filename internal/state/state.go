@@ -55,6 +55,9 @@ var migrations = []string{
 		state TEXT NOT NULL,
 		since TEXT NOT NULL
 	);`,
+	// Due dates, as YYYY-MM-DD or '' for none, for targets that keep them.
+	`ALTER TABLE link ADD COLUMN hub_due TEXT NOT NULL DEFAULT '';
+	ALTER TABLE link ADD COLUMN target_due TEXT NOT NULL DEFAULT '';`,
 }
 
 // DefaultPath is where the state database lives unless told otherwise:
@@ -134,7 +137,7 @@ func (s *DB) migrate(ctx context.Context) error {
 // Links returns a pair's links, ordered by hub ID.
 func (s *DB) Links(ctx context.Context, pairID string) ([]engine.Link, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT hub_id, target_id, hub_title, hub_completed, target_title, target_completed, synced_at
+		SELECT hub_id, target_id, hub_title, hub_completed, hub_due, target_title, target_completed, target_due, synced_at
 		FROM link WHERE pair_id = ? ORDER BY hub_id`, pairID)
 	if err != nil {
 		return nil, fmt.Errorf("state: read links: %w", err)
@@ -145,8 +148,8 @@ func (s *DB) Links(ctx context.Context, pairID string) ([]engine.Link, error) {
 	for rows.Next() {
 		var l engine.Link
 		var syncedAt string
-		if err := rows.Scan(&l.HubID, &l.TargetID, &l.Hub.Title, &l.Hub.Completed,
-			&l.Target.Title, &l.Target.Completed, &syncedAt); err != nil {
+		if err := rows.Scan(&l.HubID, &l.TargetID, &l.Hub.Title, &l.Hub.Completed, &l.Hub.Due,
+			&l.Target.Title, &l.Target.Completed, &l.Target.Due, &syncedAt); err != nil {
 			return nil, fmt.Errorf("state: read links: %w", err)
 		}
 		if l.SyncedAt, err = parseTime(syncedAt); err != nil {
@@ -373,17 +376,19 @@ type execer interface {
 
 func putLink(ctx context.Context, e execer, pairID string, l engine.Link) error {
 	_, err := e.ExecContext(ctx, `
-		INSERT INTO link (pair_id, hub_id, target_id, hub_title, hub_completed, target_title, target_completed, synced_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO link (pair_id, hub_id, target_id, hub_title, hub_completed, hub_due, target_title, target_completed, target_due, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (pair_id, hub_id) DO UPDATE SET
 			target_id = excluded.target_id,
 			hub_title = excluded.hub_title,
 			hub_completed = excluded.hub_completed,
+			hub_due = excluded.hub_due,
 			target_title = excluded.target_title,
 			target_completed = excluded.target_completed,
+			target_due = excluded.target_due,
 			synced_at = excluded.synced_at`,
-		pairID, l.HubID, l.TargetID, l.Hub.Title, l.Hub.Completed,
-		l.Target.Title, l.Target.Completed, formatTime(l.SyncedAt))
+		pairID, l.HubID, l.TargetID, l.Hub.Title, l.Hub.Completed, l.Hub.Due,
+		l.Target.Title, l.Target.Completed, l.Target.Due, formatTime(l.SyncedAt))
 	return err
 }
 

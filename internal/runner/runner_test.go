@@ -34,8 +34,9 @@ func (l *list) Items(context.Context) ([]engine.Item, error) {
 	return slices.Clone(l.items), l.itemsErr
 }
 
-func (l *list) Create(_ context.Context, title string) (engine.Item, error) {
-	l.add(title)
+func (l *list) Create(_ context.Context, from engine.Item) (engine.Item, error) {
+	l.add(from.Title)
+	l.items[len(l.items)-1].Due = from.Due
 	return l.items[len(l.items)-1], nil
 }
 
@@ -376,5 +377,26 @@ func TestProcessAlive(t *testing.T) {
 	// Pids are capped well below this.
 	if processAlive(1 << 30) {
 		t.Error("a pid that can't exist is alive")
+	}
+}
+
+func TestChorePairsSyncDates(t *testing.T) {
+	f := newFixture(t)
+	chores := newPair("chores", engine.TwoWay)
+	chores.Target = config.Target{Type: config.TargetSkylightChores, FrameID: "1", CategoryID: "24197547", Label: "Zack"}
+	f.cfg.Pairs = []config.Pair{chores}
+	f.open.hubs["chores"] = &list{prefix: "h"}
+	f.open.targets["chores"] = &list{prefix: "t"}
+	f.open.hubs["chores"].add("Get a haircut")
+
+	out, err := f.sync(t, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, `chores: Reminders "chores" <-> Skylight chores for Zack`, `create "Get a haircut" on target`)
+	// An undated reminder goes on today, which only happens when the pair
+	// syncs dates.
+	if got := f.open.targets["chores"].items[0].Due; got != f.now.Local().Format(engine.DateLayout) {
+		t.Errorf("chore due = %q, want today", got)
 	}
 }

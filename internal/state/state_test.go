@@ -31,8 +31,8 @@ func link(hubID, targetID, title string) engine.Link {
 	return engine.Link{
 		HubID:    hubID,
 		TargetID: targetID,
-		Hub:      engine.Snapshot{Title: title},
-		Target:   engine.Snapshot{Title: strings.TrimSpace(title), Completed: true},
+		Hub:      engine.Snapshot{Title: title, Due: "2026-11-02"},
+		Target:   engine.Snapshot{Title: strings.TrimSpace(title), Completed: true, Due: "2026-11-03"},
 		SyncedAt: synced,
 	}
 }
@@ -245,8 +245,8 @@ func (s *listStore) add(title string) {
 
 func (s *listStore) Items(context.Context) ([]engine.Item, error) { return slices.Clone(s.items), nil }
 
-func (s *listStore) Create(_ context.Context, title string) (engine.Item, error) {
-	s.add(title)
+func (s *listStore) Create(_ context.Context, from engine.Item) (engine.Item, error) {
+	s.add(from.Title)
 	return s.items[len(s.items)-1], nil
 }
 
@@ -356,7 +356,7 @@ func TestOpenErrors(t *testing.T) {
 func TestCorruptTimesAreErrors(t *testing.T) {
 	ctx := context.Background()
 	db, _ := open(t)
-	if _, err := db.db.ExecContext(ctx, `INSERT INTO link VALUES ('p', 'h1', 't1', 'Milk', 0, 'Milk', 0, 'yesterday')`); err != nil {
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO link VALUES ('p', 'h1', 't1', 'Milk', 0, 'Milk', 0, 'yesterday', '', '')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.db.ExecContext(ctx, `INSERT INTO pending_create VALUES ('p', 'target', 'h1', 'Milk', 'soon')`); err != nil {
@@ -436,12 +436,13 @@ func TestUpgradeFromFirstSchema(t *testing.T) {
 
 	// Build a database as the first release would have left it.
 	orig := migrations
+	t.Cleanup(func() { migrations = orig })
 	migrations = orig[:1]
 	db, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.PutLink(ctx, "p", link("h1", "t1", "Milk")); err != nil {
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO link VALUES ('p', 'h1', 't1', 'Milk', 0, 'Milk', 0, ?)`, formatTime(synced)); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
@@ -499,5 +500,37 @@ func TestDaemonStateErrors(t *testing.T) {
 	}
 	if err := db.SetDaemon(ctx, Daemon{}); err == nil {
 		t.Error("SetDaemon on a closed database: want an error")
+	}
+}
+
+func TestUpgradeAddsDueDates(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+
+	// A database from before due dates were stored.
+	orig := migrations
+	t.Cleanup(func() { migrations = orig })
+	migrations = orig[:3]
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO link VALUES ('p', 'h1', 't1', 'Milk', 0, 'Milk', 0, ?)`, formatTime(synced)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	migrations = orig
+
+	db, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	links, err := db.Links(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != 1 || links[0].Hub.Due != "" || links[0].Target.Due != "" || links[0].Hub.Title != "Milk" {
+		t.Errorf("links after upgrade = %+v", links)
 	}
 }

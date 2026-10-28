@@ -11,7 +11,7 @@ Early. What's here so far:
 - `skylight/`: a Go client for the Skylight API (OAuth login with PKCE, token refresh, frames, lists, and list items).
 - `remindersync skylight ...`: CLI commands for logging in and working with Skylight lists directly.
 - `remindersync reminders ...`: CLI commands for reading Apple Reminders lists through EventKit (macOS only).
-- `remindersync config`: an interactive menu for adding and removing sync pairs.
+- `remindersync config`: an interactive menu for adding and removing sync pairs, to a Skylight list or to someone's Skylight chores.
 - `remindersync sync` and `remindersync status`: sync every pair once and see how each pair stands.
 - `remindersync daemon`, `install` and `uninstall`: keep every pair in sync in the background, started at login by launchd.
 
@@ -22,6 +22,10 @@ go run ./cmd/remindersync config
 ```
 
 Pick a Reminders list, a Skylight frame and list, and a direction (two-way, or one-way where Skylight mirrors Reminders), then name the pair. If Skylight isn't logged in yet, the wizard runs the login first. Pairs are saved to `~/Library/Application Support/remindersync/config.toml`. A Reminders list can be in several pairs, but a Skylight list can only be in one, since two pairs writing the same list would fight over it. Read-only Reminders lists can only be one-way.
+
+## Chores
+
+A pair can sync a Reminders list with one person's chores instead of a list. In `remindersync config`, pick "Someone's chores" and then the person. Each open reminder becomes a chore on its due date, and checking it off on either side checks off the other. A reminder with no due date goes on today and moves forward each day until it's done. A repeating reminder shows as one chore on its next date, which moves to the following date when it's checked off. Reminders due more than a year out wait until they're within a year.
 
 ## Sync
 

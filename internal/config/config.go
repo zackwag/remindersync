@@ -17,8 +17,13 @@ import (
 	"github.com/zackwag/remindersync/internal/engine"
 )
 
-// TargetSkylight is the only target type so far.
-const TargetSkylight = "skylight"
+// Target types.
+const (
+	// TargetSkylight is a list on a Skylight frame.
+	TargetSkylight = "skylight"
+	// TargetSkylightChores is one category's chores on a Skylight frame.
+	TargetSkylightChores = "skylight-chores"
+)
 
 // Config is the whole file.
 type Config struct {
@@ -47,10 +52,18 @@ type RemindersList struct {
 type Target struct {
 	Type string `toml:"type"`
 
-	// Skylight.
-	FrameID string `toml:"frame_id,omitempty"`
-	ListID  string `toml:"list_id,omitempty"`
-	Label   string `toml:"label,omitempty"`
+	// Skylight. ListID is for lists and CategoryID for chores. Label is the
+	// list's or category's name, for display.
+	FrameID    string `toml:"frame_id,omitempty"`
+	ListID     string `toml:"list_id,omitempty"`
+	CategoryID string `toml:"category_id,omitempty"`
+	Label      string `toml:"label,omitempty"`
+}
+
+// Dates reports whether the target keeps a due date on every item, so the
+// pair syncs dates.
+func (t Target) Dates() bool {
+	return t.Type == TargetSkylightChores
 }
 
 // String describes the pair on one line.
@@ -63,8 +76,11 @@ func (p Pair) String() string {
 }
 
 func (t Target) String() string {
-	if t.Type == TargetSkylight {
+	switch t.Type {
+	case TargetSkylight:
 		return fmt.Sprintf("Skylight %q", t.Label)
+	case TargetSkylightChores:
+		return fmt.Sprintf("Skylight chores for %s", t.Label)
 	}
 	return t.Type
 }
@@ -134,8 +150,8 @@ func Save(path string, cfg Config) error {
 }
 
 // Validate checks every pair and the rules between pairs: IDs and names are
-// unique, and no target list is used by more than one pair, since two pairs
-// writing the same list would fight over it. Several pairs can share a
+// unique, and no target list or chore category is used by more than one pair,
+// since two pairs writing the same one would fight over it. Several pairs can share a
 // Reminders list; that's how one list feeds several targets.
 func (c Config) Validate() error {
 	ids := make(map[string]bool)
@@ -151,7 +167,7 @@ func (c Config) Validate() error {
 		if names[p.Name] {
 			return fmt.Errorf("pair name %q is used twice", p.Name)
 		}
-		key := Target{Type: p.Target.Type, FrameID: p.Target.FrameID, ListID: p.Target.ListID}
+		key := Target{Type: p.Target.Type, FrameID: p.Target.FrameID, ListID: p.Target.ListID, CategoryID: p.Target.CategoryID}
 		if other, ok := targets[key]; ok {
 			return fmt.Errorf("pairs %q and %q both sync to %s", other, p.Name, p.Target)
 		}
@@ -183,6 +199,10 @@ func (p Pair) Validate() error {
 	case TargetSkylight:
 		if p.Target.FrameID == "" || p.Target.ListID == "" {
 			return fmt.Errorf("pair %q: skylight target needs frame_id and list_id", p.Name)
+		}
+	case TargetSkylightChores:
+		if p.Target.FrameID == "" || p.Target.CategoryID == "" {
+			return fmt.Errorf("pair %q: skylight-chores target needs frame_id and category_id", p.Name)
 		}
 	default:
 		return fmt.Errorf("pair %q: unknown target type %q", p.Name, p.Target.Type)
