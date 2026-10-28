@@ -205,7 +205,7 @@ Other commands: `remindersync sync [--pair NAME] [--dry-run] [--force]` runs onc
 
 - **TCC under launchd.** Will a bare binary started by launchd get the Reminders permission prompt, or does it need an app bundle with `NSRemindersUsageDescription`? This needs a spike before `install`.
 - **Recurring reminders.** What does `Completed=true` from go-eventkit do to a recurring reminder? Reminders.app moves it to the next occurrence. A target item linked to it should probably go back to pending, but that depends on what EventKit actually does.
-- **Skylight pagination.** Does `GET` on a list return every item, or page past some size? Only lists with a few items have been tested.
+- **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
 - **Skylight `draft` items.** Items have a `draft` flag. Should drafts be skipped?
 - **Skylight rate limits.** Unknown. The first sync of a big list writes sequentially, with no parallel requests.
 - **`WatchChanges` latency for shared lists.** How fast do changes made on another device show up?
