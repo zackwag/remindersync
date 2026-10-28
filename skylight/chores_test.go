@@ -162,7 +162,7 @@ func TestChoreErrors(t *testing.T) {
 }
 
 func TestDeleteChore(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	c := newTestClient(t, func(_ http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete || r.URL.Path != "/api/frames/f1/chores/9" {
 			t.Errorf("%s %s", r.Method, r.URL.Path)
 		}

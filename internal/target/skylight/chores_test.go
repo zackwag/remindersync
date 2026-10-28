@@ -74,7 +74,7 @@ func (f *fakeChores) UpdateChore(_ context.Context, frame, id string, upd api.Ch
 	return f.chores[i], nil
 }
 
-func (f *fakeChores) DeleteChore(_ context.Context, frame, id string) error {
+func (f *fakeChores) DeleteChore(_ context.Context, frame, _ string) error {
 	if frame != frameID {
 		return fmt.Errorf("wrong frame %s", frame)
 	}

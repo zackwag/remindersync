@@ -301,8 +301,8 @@ func TestDueDates(t *testing.T) {
 	ctx := context.Background()
 	c := newFakeClient()
 	s := NewStore(c, listID)
-	local := func(y int, m time.Month, d, h, min int) time.Time {
-		return time.Date(y, m, d, h, min, 0, 0, time.Local)
+	local := func(y int, m time.Month, d, h, mi int) time.Time {
+		return time.Date(y, m, d, h, mi, 0, 0, time.Local)
 	}
 
 	// Created with a date: midnight local.
