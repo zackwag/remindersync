@@ -37,7 +37,7 @@ func runSkylight(ctx context.Context, args []string) error {
 
 	cmd, args := args[0], args[1:]
 	if cmd == "login" {
-		return skylightLogin(ctx)
+		return skylightLogin(ctx, bufio.NewReader(os.Stdin))
 	}
 
 	fs := flag.NewFlagSet("skylight "+cmd, flag.ContinueOnError)
@@ -170,7 +170,9 @@ func runSkylight(ctx context.Context, args []string) error {
 	}
 }
 
-func skylightLogin(ctx context.Context) error {
+// skylightLogin runs the one-time OAuth login. It reads from in rather than
+// os.Stdin directly so the config wizard can share its buffered reader.
+func skylightLogin(ctx context.Context, in *bufio.Reader) error {
 	pkce, err := skylight.NewPKCE()
 	if err != nil {
 		return err
@@ -189,7 +191,7 @@ func skylightLogin(ctx context.Context) error {
 	fmt.Println("   address bar (it contains ?code=...) and paste it here:")
 	fmt.Print("> ")
 
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, err := in.ReadString('\n')
 	if err != nil && line == "" {
 		return fmt.Errorf("read authorization code: %w", err)
 	}
