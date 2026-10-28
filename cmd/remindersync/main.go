@@ -21,6 +21,11 @@ Run "remindersync skylight -h" for details.
 `
 
 func main() {
+	os.Exit(realMain())
+}
+
+// realMain holds main's body so deferred calls run before os.Exit.
+func realMain() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -28,8 +33,9 @@ func main() {
 		if !errors.Is(err, errUsage) {
 			fmt.Fprintln(os.Stderr, "remindersync:", err)
 		}
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 var errUsage = errors.New("usage")
@@ -43,7 +49,7 @@ func run(ctx context.Context, args []string) error {
 	case "skylight":
 		return runSkylight(ctx, args[1:])
 	case "-h", "--help", "help":
-		fmt.Fprint(os.Stdout, usage)
+		fmt.Print(usage)
 		return nil
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", args[0], usage)

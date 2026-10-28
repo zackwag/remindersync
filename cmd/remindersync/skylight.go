@@ -74,7 +74,7 @@ func runSkylight(ctx context.Context, args []string) error {
 		}
 		tw := newTable("ID", "NAME")
 		for _, f := range frames {
-			fmt.Fprintf(tw, "%s\t%s\n", f.ID, f.Name)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\n", f.ID, f.Name)
 		}
 		return tw.Flush()
 
@@ -88,7 +88,7 @@ func runSkylight(ctx context.Context, args []string) error {
 		}
 		tw := newTable("ID", "LABEL", "KIND")
 		for _, l := range lists {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", l.ID, l.Label, l.Kind)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", l.ID, l.Label, l.Kind)
 		}
 		return tw.Flush()
 
@@ -102,7 +102,7 @@ func runSkylight(ctx context.Context, args []string) error {
 		}
 		tw := newTable("ID", "STATUS", "LABEL", "UPDATED")
 		for _, it := range items {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", it.ID, it.Status, it.Label, it.UpdatedAt)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", it.ID, it.Status, it.Label, it.UpdatedAt)
 		}
 		return tw.Flush()
 
@@ -231,6 +231,7 @@ func newSkylightClient(verbose bool) (*skylight.Client, error) {
 
 func newTable(headers ...string) *tabwriter.Writer {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	// tabwriter buffers until Flush, which reports any write error.
+	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
 	return tw
 }

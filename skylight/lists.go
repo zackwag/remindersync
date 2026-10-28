@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 )
 
@@ -17,6 +18,7 @@ var ErrItemNotReturned = errors.New("skylight: create response did not include t
 // ItemStatus is a list item's completion state.
 type ItemStatus string
 
+// List item statuses Skylight uses.
 const (
 	StatusPending   ItemStatus = "pending"
 	StatusCompleted ItemStatus = "completed"
@@ -200,7 +202,7 @@ func findListItem(body []byte, wantID string) (ListItem, error) {
 	if err != nil {
 		return ListItem{}, err
 	}
-	candidates := append(primary, doc.Included...)
+	candidates := slices.Concat(primary, doc.Included)
 	for _, r := range candidates {
 		if r.Type != "list_item" {
 			continue

@@ -110,7 +110,7 @@ func TestRefreshRejected(t *testing.T) {
 }
 
 func TestAPIErrorEchoesPayloadOn422(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = io.WriteString(w, `{"errors":["label can't be blank"]}`)
 	})
@@ -125,7 +125,7 @@ func TestAPIErrorEchoesPayloadOn422(t *testing.T) {
 }
 
 func TestFramesPrefersHouseholdName(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"data":[
 			{"id":"1","type":"frame","attributes":{"name":"byrd-malone-7772","household_name":"Byrd & Malone"}},
 			{"id":2,"type":"frame","attributes":{"name":"slug-only"}}
