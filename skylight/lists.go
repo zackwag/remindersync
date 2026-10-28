@@ -47,11 +47,11 @@ type ListItem struct {
 	Status   ItemStatus
 	Position int
 
-	// CreatedAt and UpdatedAt are passed through exactly as Skylight sends
-	// them. Unverified: it isn't known yet whether list items carry these at
-	// all, or in what format.
+	// CreatedAt is passed through as Skylight sends it (RFC 3339 in UTC with
+	// milliseconds, e.g. "2026-10-28T13:11:04.198Z"). Skylight doesn't send
+	// an updated_at, so changes have to be found by diffing against the last
+	// known label and status.
 	CreatedAt string
-	UpdatedAt string
 }
 
 // ListItemUpdate holds the fields to change on a list item. Nil fields are
@@ -77,7 +77,6 @@ type listItemAttributes struct {
 	Status    ItemStatus `json:"status"`
 	Position  *int       `json:"position"`
 	CreatedAt *string    `json:"created_at"`
-	UpdatedAt *string    `json:"updated_at"`
 }
 
 // Frames returns every frame on the account.
@@ -159,8 +158,7 @@ func (c *Client) AddListItem(ctx context.Context, frameID, listID, label string)
 }
 
 // UpdateListItem changes an item's label and/or status and returns the
-// updated item. Unverified: the HA integration sends "name" rather than
-// "label" on update, while create definitely takes "label".
+// updated item.
 func (c *Client) UpdateListItem(ctx context.Context, frameID, listID, itemID string, update ListItemUpdate) (ListItem, error) {
 	path := listPath(frameID, listID) + "/list_items/" + url.PathEscape(itemID)
 	body, err := c.do(ctx, http.MethodPut, path, nil, update)
@@ -242,9 +240,6 @@ func newListItem(itemID string, a listItemAttributes) ListItem {
 	}
 	if a.CreatedAt != nil {
 		item.CreatedAt = *a.CreatedAt
-	}
-	if a.UpdatedAt != nil {
-		item.UpdatedAt = *a.UpdatedAt
 	}
 	return item
 }

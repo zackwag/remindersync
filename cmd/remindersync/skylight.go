@@ -100,9 +100,9 @@ func runSkylight(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		tw := newTable("ID", "STATUS", "LABEL", "UPDATED")
+		tw := newTable("ID", "STATUS", "LABEL", "CREATED")
 		for _, it := range items {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", it.ID, it.Status, it.Label, it.UpdatedAt)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", it.ID, it.Status, it.Label, it.CreatedAt)
 		}
 		return tw.Flush()
 

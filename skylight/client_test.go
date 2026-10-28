@@ -151,7 +151,7 @@ func TestListItemsSortedFromIncluded(t *testing.T) {
 			"included":[
 				{"id":"b","type":"list_item","attributes":{"label":"Second","status":"completed","position":2}},
 				{"id":"x","type":"category","attributes":{}},
-				{"id":"a","type":"list_item","attributes":{"label":"First","position":1,"updated_at":"2026-10-27T19:00:00Z"}}
+				{"id":"a","type":"list_item","attributes":{"label":"First","position":1,"created_at":"2026-10-28T13:11:04.198Z"}}
 			]}`)
 	})
 	items, err := c.ListItems(context.Background(), "f1", "l1")
@@ -161,7 +161,7 @@ func TestListItemsSortedFromIncluded(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("got %d items, want 2", len(items))
 	}
-	if items[0].ID != "a" || items[0].Status != StatusPending || items[0].UpdatedAt != "2026-10-27T19:00:00Z" {
+	if items[0].ID != "a" || items[0].Status != StatusPending || items[0].CreatedAt != "2026-10-28T13:11:04.198Z" {
 		t.Errorf("items[0] = %+v", items[0])
 	}
 	if items[1].ID != "b" || items[1].Status != StatusCompleted {
