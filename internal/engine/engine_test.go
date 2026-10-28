@@ -323,6 +323,71 @@ func TestSyncRecoveryIgnoresOlderItemsWithTheSameTitle(t *testing.T) {
 	f.mustSettle(t)
 }
 
+func TestSyncNormalizingHubRewritesTarget(t *testing.T) {
+	f := newFixture(TwoWay)
+	f.hub.normalize = strings.TrimSpace
+	f.hub.add("Milk", false)
+	f.sync(t, Options{})
+
+	f.target.set(t, f.target.items[0].ID, "Oat milk  ", false)
+	f.sync(t, Options{})
+	wantHub("Oat milk", false)(t, f)
+	wantTarget("Oat milk", false)(t, f)
+	f.mustSettle(t)
+}
+
+func TestSyncRepeatingHubItem(t *testing.T) {
+	setup := func(t *testing.T) (*fixture, Item) {
+		t.Helper()
+		f := newFixture(TwoWay)
+		mortgage := f.hub.add("Pay Mortgage", false)
+		f.hub.repeating = map[string]bool{mortgage.ID: true}
+		f.sync(t, Options{})
+		return f, f.target.byTitle("Pay Mortgage")[0]
+	}
+
+	t.Run("checked off on target reopens it", func(t *testing.T) {
+		f, tm := setup(t)
+		f.target.set(t, tm.ID, "Pay Mortgage", true)
+		f.target.writes = nil
+
+		res := f.sync(t, Options{})
+		want := `update "Pay Mortgage": hub completed=true`
+		if len(res.Actions) != 1 || res.Actions[0].String() != want {
+			t.Errorf("actions = %v, want [%s]", res.Actions, want)
+		}
+		if n := len(f.hub.byTitle("Pay Mortgage")); n != 2 {
+			t.Errorf("hub has %d Pay Mortgage, want the open one and a completed copy", n)
+		}
+		if f.hub.items[0].Completed {
+			t.Error("the repeating hub item was completed")
+		}
+		if f.target.items[0].Completed {
+			t.Error("target item is still checked off")
+		}
+		if want := []string{"update " + tm.ID + " completed=false"}; !slices.Equal(f.target.writes, want) {
+			t.Errorf("target writes = %v, want %v", f.target.writes, want)
+		}
+		f.mustSettle(t)
+	})
+
+	t.Run("deleted on target comes back", func(t *testing.T) {
+		f, tm := setup(t)
+		f.target.remove(t, tm.ID)
+
+		res := f.sync(t, Options{})
+		if len(res.Actions) != 1 || res.Actions[0].Kind != ActionCompleteHub {
+			t.Errorf("actions = %v, want one complete-hub", res.Actions)
+		}
+		res = f.sync(t, Options{})
+		if len(res.Actions) != 1 || res.Actions[0].Kind != ActionCreateTarget {
+			t.Errorf("actions = %v, want one create-target", res.Actions)
+		}
+		wantTargetCount("Pay Mortgage", 1)(t, f)
+		f.mustSettle(t)
+	})
+}
+
 func TestSyncConflictHubWins(t *testing.T) {
 	f := newFixture(TwoWay)
 	milk := f.hub.add("Milk", false)

@@ -151,13 +151,18 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 	case ActionUpdate:
 		h, t := a.Hub, a.Target
 		var err error
+		targetChange := a.TargetChange
 		if !a.HubChange.IsZero() {
 			if h, err = s.pair.Hub.Update(ctx, h.ID, a.HubChange); err != nil {
 				return err
 			}
+			if kept := overruled(a.HubChange, h); !kept.IsZero() {
+				s.log.Info("hub kept its own value; writing it to the target", "item", h.Title, "hub", kept.String())
+				targetChange = targetChange.with(kept)
+			}
 		}
-		if !a.TargetChange.IsZero() {
-			if t, err = s.pair.Target.Update(ctx, t.ID, a.TargetChange); err != nil {
+		if !targetChange.IsZero() {
+			if t, err = s.pair.Target.Update(ctx, t.ID, targetChange); err != nil {
 				return err
 			}
 		}
@@ -189,6 +194,21 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 		return s.state.DeleteLink(ctx, s.pair.ID, a.Link.HubID)
 	}
 	return fmt.Errorf("unknown action kind %q", a.Kind)
+}
+
+// overruled returns the fields of ch that the hub didn't take, set to the
+// values it kept. Completing a repeating reminder is the case that matters:
+// EventKit moves it to its next due date and leaves it open, so the target
+// item that was checked off has to be reopened to match.
+func overruled(ch Change, h Item) Change {
+	var out Change
+	if ch.Title != nil && *ch.Title != h.Title {
+		out.Title = &h.Title
+	}
+	if ch.Completed != nil && *ch.Completed != h.Completed {
+		out.Completed = &h.Completed
+	}
+	return out
 }
 
 // create copies source to the given side, journaling the create first so an

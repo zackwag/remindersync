@@ -28,6 +28,7 @@ From the spikes in #1 and #5, against real data:
 | Reading all 876 of my reminders takes about 130 ms. | Reading the whole hub every sync is fine. No incremental reads needed. |
 | go-eventkit's `WithListID` is broken in v0.16.0. | Reminders are filtered by `ListID` in our code. |
 | `Groceries` has 489 reminders, all completed. | Completed history must not be copied to a target. |
+| Completing a repeating reminder through go-eventkit works like Reminders.app: the reminder keeps its ID, stays open and moves to its next due date, and a completed copy with a new ID is added. `UpdateReminder` returns the open reminder. | Completing a hub item can leave it open. The target item has to be reopened to match (see [Repeating reminders](#repeating-reminders)). |
 
 ## Architecture
 
@@ -164,6 +165,14 @@ For each pair, independently:
 
 Because changes are detected by comparing values, not timestamps or events, the sync is idempotent: a run straight after another run plans nothing. Our own writes don't count as changes on the next pass, because the baseline is updated with the result of each write. That's what prevents the feedback loop behind the 762 duplicates.
 
+### Repeating reminders
+
+When a target item linked to a repeating reminder is checked off, the sync completes the reminder, and EventKit moves it to its next due date instead of closing it. In the same step, the sync writes the hub's value back to the target, so the target item is unchecked again and both baselines say open. Without that, the hub would report "open, unchanged" from then on and the target item would stay checked off for every later occurrence. The rule is general: if the hub returns a different value for a field it was asked to change, that value goes to the target too.
+
+Deleting the target item works the same way. The sync completes the reminder and unlinks it. The reminder is still open, so the next sync copies it to the target again, and the completed copy is never copied. Checking it off in Reminders changes nothing on the target, because the reminder stays open.
+
+Targets don't show due dates, so a repeating item reappears unchecked straight away rather than when its next occurrence is due.
+
 ### First sync
 
 A pair with no links yet may have the same things on both sides, such as "Milk" in Reminders and on the frame. Creating both would duplicate them. So on the first sync only, incomplete items are matched by exact title, one to one, and linked without writing anything. Items with ambiguous titles (the same title more than once on a side) aren't matched and fall through to the normal create rules. This is the only place titles are compared, and `remindersync sync -dry-run` shows the matches before anything is written.
@@ -208,7 +217,6 @@ Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, 
 ## Open questions
 
 - **TCC under launchd.** Will a bare binary started by launchd get the Reminders permission prompt, or does it need an app bundle with `NSRemindersUsageDescription`? This needs a spike before `install`.
-- **Recurring reminders.** What does `Completed=true` from go-eventkit do to a recurring reminder? Reminders.app moves it to the next occurrence. A target item linked to it should probably go back to pending, but that depends on what EventKit actually does.
 - **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
 - **Skylight `draft` items.** Items have a `draft` flag. Should drafts be skipped?
 - **Skylight rate limits.** Unknown. The first sync of a big list writes sequentially, with no parallel requests.
