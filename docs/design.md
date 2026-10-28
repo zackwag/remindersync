@@ -194,7 +194,7 @@ Before creating an item on either side, the engine writes a `pending_create` row
 
 `remindersync daemon` syncs every pair at start and then whenever one of these fires:
 
-- **Reminders changes:** `WatchChanges`, debounced by 2 s, triggers a sync. Our own writes trigger it too, so each change is followed by one sync that finds nothing to do. That costs one extra read of each side and keeps the loop simple.
+- **Reminders changes:** `WatchChanges`, debounced by 2 s, triggers a sync. EventKit only reports changes made by other processes (Reminders.app, iCloud sync) to a process whose main thread runs the Core Foundation run loop, so `main` runs the command on another goroutine and gives the main thread to the run loop (`internal/mainloop`). Without that, only the poll caught them. Our own writes trigger it too, so each change is followed by one sync that finds nothing to do. That costs one extra read of each side and keeps the loop simple.
 - **Target changes:** Skylight has no push, so it's polled, 60 s after the last sync by default. That's 1,440 list reads a day for each pair. It's light, but it's still undocumented API traffic, so `-poll` changes it, down to 10 s.
 
 Each sync reloads `config.toml`, so pairs added or removed with `remindersync config` apply without a restart. It takes `sync.lock` for just that sync, so a manual `sync` can run between the daemon's. If the lock is held, it tries again in 10 s. A separate `daemon.lock`, held for the daemon's whole life, stops a second daemon from starting. On SIGTERM it lets a sync in progress finish before exiting. Its output is quiet: only pairs with changes or errors are logged, with timestamps.

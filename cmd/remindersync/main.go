@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/zackwag/remindersync/internal/mainloop"
 )
 
 const usage = `Usage: remindersync <command> [arguments]
@@ -29,7 +31,9 @@ Run "remindersync <command> -h" for details.
 `
 
 func main() {
-	os.Exit(realMain())
+	// The main thread runs the run loop that EventKit needs to report
+	// changes made by other apps, so the command runs on another goroutine.
+	mainloop.Run(realMain)
 }
 
 // realMain holds main's body so deferred calls run before os.Exit.
