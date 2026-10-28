@@ -138,16 +138,15 @@ func (o *opener) Hub(p config.Pair) (engine.Store, error) {
 }
 
 func (o *opener) Target(_ context.Context, p config.Pair) (engine.Store, error) {
-	switch p.Target.Type {
-	case config.TargetSkylight:
-		if o.sky == nil {
-			c, err := newSkylightClient(o.verbose)
-			if err != nil {
-				return nil, err
-			}
-			o.sky = c
-		}
-		return skylightstore.NewStore(o.sky, p.Target.FrameID, p.Target.ListID), nil
+	if p.Target.Type != config.TargetSkylight {
+		return nil, fmt.Errorf("unknown target type %q", p.Target.Type)
 	}
-	return nil, fmt.Errorf("unknown target type %q", p.Target.Type)
+	if o.sky == nil {
+		c, err := newSkylightClient(o.verbose)
+		if err != nil {
+			return nil, err
+		}
+		o.sky = c
+	}
+	return skylightstore.NewStore(o.sky, p.Target.FrameID, p.Target.ListID), nil
 }
