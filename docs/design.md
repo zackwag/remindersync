@@ -28,6 +28,7 @@ From the spikes in #1 and #5, against real data:
 | Reading all 876 of my reminders takes about 130 ms. | Reading the whole hub every sync is fine. No incremental reads needed. |
 | go-eventkit's `WithListID` is broken in v0.16.0. | Reminders are filtered by `ListID` in our code. |
 | `Groceries` has 489 reminders, all completed. | Completed history must not be copied to a target. |
+| A plain binary started by launchd gets its own Reminders permission prompt, under the binary's name. It's tied to that exact build: an identical rebuild at the same path asked again, and until someone answers, `eventkit.New()` blocks. A run from Terminal is granted through Terminal, so it can't approve the daemon. | No `.app` bundle is needed. `install` loads the agent and waits while you answer the prompt, and has to be run again after an upgrade. The daemon records that it's waiting before it asks, so `status` can say why nothing is syncing. |
 | Completing a repeating reminder through go-eventkit works like Reminders.app: the reminder keeps its ID, stays open and moves to its next due date, and a completed copy with a new ID is added. `UpdateReminder` returns the open reminder. | Completing a hub item can leave it open. The target item has to be reopened to match (see [Repeating reminders](#repeating-reminders)). |
 
 ## Architecture
@@ -191,12 +192,25 @@ Before creating an item on either side, the engine writes a `pending_create` row
 
 ## Running it
 
-`remindersync daemon` runs every pair in a loop:
+`remindersync daemon` syncs every pair at start and then whenever one of these fires:
 
-- **Reminders changes:** `WatchChanges`, debounced by 2 s, triggers a sync.
-- **Target changes:** Skylight has no push, so it's polled. The default is every 60 s, which is 1,440 list reads a day for each pair. That's light, but it's still undocumented API traffic, so the interval is configurable.
+- **Reminders changes:** `WatchChanges`, debounced by 2 s, triggers a sync. EventKit only reports changes made by other processes (Reminders.app, iCloud sync) to a process whose main thread runs the Core Foundation run loop, so `main` runs the command on another goroutine and gives the main thread to the run loop (`internal/mainloop`). Without that, only the poll caught them. Our own writes trigger it too, so each change is followed by one sync that finds nothing to do. That costs one extra read of each side and keeps the loop simple.
+- **Target changes:** Skylight has no push, so it's polled, 60 s after the last sync by default. That's 1,440 list reads a day for each pair. It's light, but it's still undocumented API traffic, so `-poll` changes it, down to 10 s.
 
-It's installed as a launchd user agent (`~/Library/LaunchAgents`) rather than a system daemon, because EventKit access is granted per user and needs a login session. `remindersync install` writes the plist and loads it.
+Each sync reloads `config.toml`, so pairs added or removed with `remindersync config` apply without a restart. It takes `sync.lock` for just that sync, so a manual `sync` can run between the daemon's. If the lock is held, it tries again in 10 s. A separate `daemon.lock`, held for the daemon's whole life, stops a second daemon from starting. On SIGTERM it lets a sync in progress finish before exiting. Its output is quiet: only pairs with changes or errors are logged, with timestamps.
+
+The daemon records its state (waiting for Reminders access, running, access denied, stopped) and PID in a `daemon` table in `state.db`, and `status` shows it. A state of running or waiting whose PID is gone means it died without cleaning up.
+
+It's installed as a launchd user agent (`~/Library/LaunchAgents`) rather than a system daemon, because EventKit access is granted per user and needs a login session. `remindersync install`:
+
+1. Checks that there are pairs and a Skylight login.
+1. Copies the running binary to `~/Library/Application Support/remindersync/bin/remindersync`, through a temporary file and a rename, so a fixed path stays in the plist whether it was built with `go run` or `go install`.
+1. Writes `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, unloading any older copy first.
+1. Waits up to 2 minutes for the new daemon to report running, saying to click Allow if it's waiting on the Reminders prompt. Reports from the daemon it replaced are told apart by PID.
+
+The agent runs at load and only in a GUI (Aqua) session, which the permission prompt needs. launchd restarts it after a crash or an error exit, 30 s apart, but not after a clean exit. That's how a refused permission stops it for good instead of prompting in a loop. stdout and stderr go to `~/Library/Logs/remindersync/daemon.log`. `remindersync uninstall` unloads the agent and removes the plist and the binary, and keeps config, state and the log.
+
+The Skylight token comes from the Keychain through `zalando/go-keyring`, which calls `/usr/bin/security` on macOS. So the Keychain item's access list trusts `security`, not our binary, and a rebuilt daemon reads it without a Keychain prompt.
 
 Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, and `remindersync status` shows each pair's link count, unfinished creates, and the time, change count and any error of its last sync, from a `run` table in `state.db`.
 
@@ -216,7 +230,8 @@ Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, 
 
 ## Open questions
 
-- **TCC under launchd.** Will a bare binary started by launchd get the Reminders permission prompt, or does it need an app bundle with `NSRemindersUsageDescription`? This needs a spike before `install`.
+- **A permission that survives upgrades.** Signing the binary with a self-signed certificate from the login keychain, instead of the linker's ad hoc signature, should make the permission follow the certificate instead of the build. Untested. Until then, `install` after each upgrade covers it.
+- **Log rotation.** The daemon's log only grows. Quiet output keeps that slow, but a target that fails every poll adds a few lines a minute.
 - **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
 - **Skylight `draft` items.** Items have a `draft` flag. Should drafts be skipped?
 - **Skylight rate limits.** Unknown. The first sync of a big list writes sequentially, with no parallel requests.

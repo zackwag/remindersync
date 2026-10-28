@@ -2,8 +2,10 @@ package runner
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -85,13 +87,15 @@ func newPair(name string, dir engine.Direction) config.Pair {
 type fixture struct {
 	cfg  config.Config
 	db   *state.DB
+	path string
 	open *opener
 	now  time.Time
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	db, err := state.Open(context.Background(), filepath.Join(t.TempDir(), "state.db"))
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := state.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +103,7 @@ func newFixture(t *testing.T) *fixture {
 	f := &fixture{
 		cfg:  config.Config{Pairs: []config.Pair{newPair("groceries", engine.TwoWay), newPair("todo", engine.OneWay)}},
 		db:   db,
+		path: path,
 		open: &opener{hubs: map[string]*list{}, targets: map[string]*list{}},
 		now:  time.Date(2026, 10, 28, 15, 0, 0, 0, time.UTC),
 	}
@@ -286,5 +291,90 @@ func TestDefaultClock(t *testing.T) {
 	st, _ := f.db.Status(context.Background(), f.cfg.Pairs[0].ID)
 	if st.LastRun == nil || time.Since(st.LastRun.FinishedAt) > time.Minute {
 		t.Errorf("last run = %+v, want one stamped just now", st.LastRun)
+	}
+}
+
+func TestQuietPrintsOnlyPairsWithNews(t *testing.T) {
+	f := newFixture(t)
+	f.open.hubs["todo"].add("Call the plumber")
+
+	out, err := f.sync(t, Options{Quiet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "groceries") || !strings.HasPrefix(out, "todo: ") {
+		t.Errorf("output:\n%s", out)
+	}
+	mustContain(t, out, "  Applied 1 change.")
+
+	out, err = f.sync(t, Options{Quiet: true})
+	if err != nil || out != "" {
+		t.Errorf("a quiet sync with nothing to do printed %q, err %v", out, err)
+	}
+	// Quiet syncs are still recorded.
+	mustContain(t, f.status(t), "  Last sync:          "+f.now.Local().Format("2006-01-02 15:04:05")+", 0 changes")
+
+	f.open.hubs["groceries"].itemsErr = errors.New("EventKit is unhappy")
+	out, _ = f.sync(t, Options{Quiet: true})
+	mustContain(t, out, "groceries: ", "read hub: EventKit is unhappy")
+
+	_ = f.db.Close()
+	out, _ = f.sync(t, Options{Quiet: true, Pair: "todo"})
+	mustContain(t, out, "todo: ", "couldn't record this run")
+}
+
+func TestStatusShowsDaemon(t *testing.T) {
+	alive := true
+	orig := processAlive
+	processAlive = func(int) bool { return alive }
+	t.Cleanup(func() { processAlive = orig })
+
+	f := newFixture(t)
+	since := f.now.Local().Format("2006-01-02 15:04:05")
+	mustContain(t, f.status(t), "Daemon: never started")
+
+	for _, tc := range []struct {
+		state state.DaemonState
+		alive bool
+		want  string
+	}{
+		{state.DaemonRunning, true, "Daemon: running since " + since + " (pid 42)"},
+		{state.DaemonWaitingForAccess, true, "Daemon: waiting for Reminders access since " + since + " (pid 42). Click Allow"},
+		{state.DaemonRunning, false, "Daemon: not running. It stopped without exiting cleanly some time after " + since},
+		{state.DaemonWaitingForAccess, false, "Daemon: not running."},
+		{state.DaemonAccessDenied, false, "Daemon: stopped at " + since + " because Reminders access was denied"},
+		{state.DaemonStopped, false, "Daemon: stopped at " + since + "\n"},
+	} {
+		alive = tc.alive
+		if err := f.db.SetDaemon(context.Background(), state.Daemon{PID: 42, State: tc.state, Since: f.now}); err != nil {
+			t.Fatal(err)
+		}
+		mustContain(t, f.status(t), tc.want)
+	}
+
+	// A pair whose status can't be read fails status.
+	if _, err := f.sync(t, Options{Pair: "todo"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	if _, err := raw.Exec(`UPDATE run SET finished_at = 'whenever'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Status(context.Background(), f.cfg, f.db, &strings.Builder{}); err == nil {
+		t.Error("want an error for a bad run time")
+	}
+}
+
+func TestProcessAlive(t *testing.T) {
+	if !processAlive(os.Getpid()) {
+		t.Error("this process isn't alive")
+	}
+	// Pids are capped well below this.
+	if processAlive(1 << 30) {
+		t.Error("a pid that can't exist is alive")
 	}
 }

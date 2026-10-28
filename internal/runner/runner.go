@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"syscall"
 	"time"
 
 	"github.com/zackwag/remindersync/internal/config"
@@ -30,6 +32,8 @@ type Options struct {
 	Pair   string
 	DryRun bool
 	Force  bool
+	// Quiet leaves out pairs that had nothing to do, for the daemon's log.
+	Quiet  bool
 	Out    io.Writer
 	Logger *slog.Logger
 	// Now defaults to time.Now.
@@ -49,47 +53,58 @@ func Sync(ctx context.Context, cfg config.Config, db *state.DB, open Opener, opt
 		now = time.Now
 	}
 
-	var failed int
-	for i, p := range pairs {
-		if i > 0 {
-			printf(opts.Out, "\n")
-		}
-		printf(opts.Out, "%s\n", p)
+	var failed, printed int
+	for _, p := range pairs {
 		res, err := syncPair(ctx, p, db, open, opts, now)
-		for _, a := range res.Actions {
-			printf(opts.Out, "  %s\n", a)
-		}
-		switch {
-		case err != nil:
-			failed++
-			printf(opts.Out, "  failed after %d of %d changes: %v\n", res.Applied, len(res.Actions), err)
-			if errors.Is(err, engine.ErrTooManyChanges) {
-				printf(opts.Out, "  Check the plan with -dry-run, then rerun with -force if it's what you want.\n")
+		var recordErr error
+		if !opts.DryRun {
+			run := state.Run{FinishedAt: now(), Planned: len(res.Actions), Applied: res.Applied}
+			if err != nil {
+				run.Error = err.Error()
 			}
-		case len(res.Actions) == 0:
-			printf(opts.Out, "  Nothing to do.\n")
-		case opts.DryRun:
-			printf(opts.Out, "  %d %s planned. Dry run, so nothing was written.\n", len(res.Actions), plural(len(res.Actions), "change", "changes"))
-		default:
-			printf(opts.Out, "  Applied %d %s.\n", res.Applied, plural(res.Applied, "change", "changes"))
+			recordErr = db.RecordRun(ctx, p.ID, run)
 		}
-
-		if opts.DryRun {
+		if err != nil || recordErr != nil {
+			failed++
+		}
+		if opts.Quiet && err == nil && recordErr == nil && len(res.Actions) == 0 {
 			continue
 		}
-		run := state.Run{FinishedAt: now(), Planned: len(res.Actions), Applied: res.Applied}
-		if err != nil {
-			run.Error = err.Error()
+
+		if printed > 0 {
+			printf(opts.Out, "\n")
 		}
-		if err := db.RecordRun(ctx, p.ID, run); err != nil {
-			failed++
-			printf(opts.Out, "  couldn't record this run: %v\n", err)
+		printed++
+		report(opts, p, res, err)
+		if recordErr != nil {
+			printf(opts.Out, "  couldn't record this run: %v\n", recordErr)
 		}
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d of %d %s failed", failed, len(pairs), plural(len(pairs), "pair", "pairs"))
 	}
 	return nil
+}
+
+// report prints a pair's actions and how the sync went.
+func report(opts Options, p config.Pair, res engine.Result, err error) {
+	printf(opts.Out, "%s\n", p)
+	for _, a := range res.Actions {
+		printf(opts.Out, "  %s\n", a)
+	}
+	switch {
+	case err != nil:
+		printf(opts.Out, "  failed after %d of %d changes: %v\n", res.Applied, len(res.Actions), err)
+		if errors.Is(err, engine.ErrTooManyChanges) {
+			printf(opts.Out, "  Check the plan with -dry-run, then rerun with -force if it's what you want.\n")
+		}
+	case len(res.Actions) == 0:
+		printf(opts.Out, "  Nothing to do.\n")
+	case opts.DryRun:
+		printf(opts.Out, "  %d %s planned. Dry run, so nothing was written.\n", len(res.Actions), plural(len(res.Actions), "change", "changes"))
+	default:
+		printf(opts.Out, "  Applied %d %s.\n", res.Applied, plural(res.Applied, "change", "changes"))
+	}
 }
 
 func syncPair(ctx context.Context, p config.Pair, db *state.DB, open Opener, opts Options, now func() time.Time) (engine.Result, error) {
@@ -109,16 +124,19 @@ func syncPair(ctx context.Context, p config.Pair, db *state.DB, open Opener, opt
 	})
 }
 
-// Status prints each pair with its link count, unfinished creates and last
-// run.
+// Status prints what the daemon is doing, then each pair with its link
+// count, unfinished creates and last run.
 func Status(ctx context.Context, cfg config.Config, db *state.DB, out io.Writer) error {
 	if len(cfg.Pairs) == 0 {
 		return ErrNoPairs
 	}
-	for i, p := range cfg.Pairs {
-		if i > 0 {
-			printf(out, "\n")
-		}
+	d, err := db.Daemon(ctx)
+	if err != nil {
+		return err
+	}
+	printf(out, "Daemon: %s\n", describeDaemon(d))
+	for _, p := range cfg.Pairs {
+		printf(out, "\n")
 		st, err := db.Status(ctx, p.ID)
 		if err != nil {
 			return err
@@ -138,6 +156,31 @@ func Status(ctx context.Context, cfg config.Config, db *state.DB, out io.Writer)
 		}
 	}
 	return nil
+}
+
+// processAlive reports whether a process exists, by sending it signal 0.
+var processAlive = func(pid int) bool {
+	p, err := os.FindProcess(pid)
+	return err == nil && p.Signal(syscall.Signal(0)) == nil
+}
+
+func describeDaemon(d *state.Daemon) string {
+	if d == nil {
+		return "never started (run `remindersync install` to run it in the background)"
+	}
+	live := d.State == state.DaemonRunning || d.State == state.DaemonWaitingForAccess
+	switch {
+	case live && !processAlive(d.PID):
+		return fmt.Sprintf("not running. It stopped without exiting cleanly some time after %s (pid %d), so check its log.", stamp(d.Since), d.PID)
+	case d.State == state.DaemonRunning:
+		return fmt.Sprintf("running since %s (pid %d)", stamp(d.Since), d.PID)
+	case d.State == state.DaemonWaitingForAccess:
+		return fmt.Sprintf("waiting for Reminders access since %s (pid %d). Click Allow on the macOS prompt.", stamp(d.Since), d.PID)
+	case d.State == state.DaemonAccessDenied:
+		return fmt.Sprintf("stopped at %s because Reminders access was denied. Allow remindersync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.", stamp(d.Since))
+	default:
+		return fmt.Sprintf("stopped at %s", stamp(d.Since))
+	}
 }
 
 func selectPairs(cfg config.Config, name string) ([]config.Pair, error) {

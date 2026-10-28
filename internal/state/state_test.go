@@ -459,3 +459,45 @@ func TestUpgradeFromFirstSchema(t *testing.T) {
 		t.Errorf("links after upgrade = %+v", links)
 	}
 }
+
+func TestDaemonState(t *testing.T) {
+	ctx := context.Background()
+	db, _ := open(t)
+	if d, err := db.Daemon(ctx); err != nil || d != nil {
+		t.Fatalf("before the daemon ever ran: %+v, %v", d, err)
+	}
+
+	waiting := Daemon{PID: 42, State: DaemonWaitingForAccess, Since: synced}
+	running := Daemon{PID: 42, State: DaemonRunning, Since: synced.Add(time.Second)}
+	for _, want := range []Daemon{waiting, running} {
+		if err := db.SetDaemon(ctx, want); err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.Daemon(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || *got != want {
+			t.Errorf("daemon = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestDaemonStateErrors(t *testing.T) {
+	ctx := context.Background()
+	db, _ := open(t)
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO daemon VALUES (1, 42, 'running', 'at some point')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Daemon(ctx); err == nil {
+		t.Error("want an error for a bad since")
+	}
+
+	_ = db.Close()
+	if _, err := db.Daemon(ctx); err == nil {
+		t.Error("Daemon on a closed database: want an error")
+	}
+	if err := db.SetDaemon(ctx, Daemon{}); err == nil {
+		t.Error("SetDaemon on a closed database: want an error")
+	}
+}
