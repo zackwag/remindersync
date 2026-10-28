@@ -20,6 +20,23 @@ jobs:
         with:
           scandir: './scripts'
 
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          # Build the linter with this repo's Go toolchain. A prebuilt binary
+          # compiled with an older Go can't type-check code targeting a newer
+          # go.mod version.
+          install-mode: goinstall
+
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest

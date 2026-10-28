@@ -8,3 +8,8 @@ build/
 __pycache__/
 *.pyc
 .venv/
+
+# Go
+/remindersync
+*.test
+coverage.out
