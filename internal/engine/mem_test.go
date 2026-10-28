@@ -41,6 +41,9 @@ type memStore struct {
 	// loseCreateResponse makes creates succeed but return an error, like a
 	// crash between the API call and saving the link.
 	loseCreateResponse bool
+	// updateErr and deleteErr fail those writes before anything changes.
+	updateErr error
+	deleteErr error
 
 	writes []string
 }
@@ -82,6 +85,9 @@ func (m *memStore) Create(_ context.Context, title string) (Item, error) {
 }
 
 func (m *memStore) Update(_ context.Context, id string, ch Change) (Item, error) {
+	if m.updateErr != nil {
+		return Item{}, m.updateErr
+	}
 	i := m.index(id)
 	if i < 0 {
 		return Item{}, fmt.Errorf("update %s: not found", id)
@@ -97,6 +103,9 @@ func (m *memStore) Update(_ context.Context, id string, ch Change) (Item, error)
 }
 
 func (m *memStore) Delete(_ context.Context, id string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	m.writes = append(m.writes, "delete "+id)
 	if i := m.index(id); i >= 0 {
 		m.items = slices.Delete(m.items, i, i+1)
@@ -156,16 +165,23 @@ type pendingKey struct {
 type memState struct {
 	links   map[string]map[string]Link
 	pending map[pendingKey]PendingCreate
+
+	// fail makes the named method return the error without doing anything.
+	fail map[string]error
 }
 
 func newMemState() *memState {
 	return &memState{
 		links:   make(map[string]map[string]Link),
 		pending: make(map[pendingKey]PendingCreate),
+		fail:    make(map[string]error),
 	}
 }
 
 func (s *memState) Links(_ context.Context, pairID string) ([]Link, error) {
+	if err := s.fail["Links"]; err != nil {
+		return nil, err
+	}
 	var out []Link
 	for _, l := range s.links[pairID] {
 		out = append(out, l)
@@ -175,6 +191,9 @@ func (s *memState) Links(_ context.Context, pairID string) ([]Link, error) {
 }
 
 func (s *memState) PutLink(_ context.Context, pairID string, l Link) error {
+	if err := s.fail["PutLink"]; err != nil {
+		return err
+	}
 	for hubID, other := range s.links[pairID] {
 		if hubID != l.HubID && other.TargetID == l.TargetID {
 			return fmt.Errorf("target %s is already linked to hub %s", l.TargetID, hubID)
@@ -188,11 +207,17 @@ func (s *memState) PutLink(_ context.Context, pairID string, l Link) error {
 }
 
 func (s *memState) DeleteLink(_ context.Context, pairID, hubID string) error {
+	if err := s.fail["DeleteLink"]; err != nil {
+		return err
+	}
 	delete(s.links[pairID], hubID)
 	return nil
 }
 
 func (s *memState) Pending(_ context.Context, pairID string) ([]PendingCreate, error) {
+	if err := s.fail["Pending"]; err != nil {
+		return nil, err
+	}
 	var out []PendingCreate
 	for k, p := range s.pending {
 		if k.pair == pairID {
@@ -204,11 +229,17 @@ func (s *memState) Pending(_ context.Context, pairID string) ([]PendingCreate, e
 }
 
 func (s *memState) BeginCreate(_ context.Context, pairID string, p PendingCreate) error {
+	if err := s.fail["BeginCreate"]; err != nil {
+		return err
+	}
 	s.pending[pendingKey{pairID, p.Side, p.SourceID}] = p
 	return nil
 }
 
 func (s *memState) FinishCreate(ctx context.Context, pairID string, side Side, sourceID string, l Link) error {
+	if err := s.fail["FinishCreate"]; err != nil {
+		return err
+	}
 	if err := s.PutLink(ctx, pairID, l); err != nil {
 		return err
 	}
@@ -217,6 +248,9 @@ func (s *memState) FinishCreate(ctx context.Context, pairID string, side Side, s
 }
 
 func (s *memState) AbandonCreate(_ context.Context, pairID string, side Side, sourceID string) error {
+	if err := s.fail["AbandonCreate"]; err != nil {
+		return err
+	}
 	delete(s.pending, pendingKey{pairID, side, sourceID})
 	return nil
 }
