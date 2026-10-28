@@ -78,7 +78,7 @@ func TestLoadMissingFileIsEmpty(t *testing.T) {
 func TestLoadErrors(t *testing.T) {
 	tests := map[string]string{
 		"bad toml":    "[[pair]\n",
-		"unknown key": "[[pair]]\nid = \"a\"\nnmae = \"typo\"\n",
+		"unknown key": "[[pair]]\nid = \"a\"\nnickname = \"unknown\"\n",
 		"invalid":     "[[pair]]\nid = \"a\"\n",
 	}
 	for name, body := range tests {
