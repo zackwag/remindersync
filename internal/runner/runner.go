@@ -184,7 +184,7 @@ func describeDaemon(d *state.Daemon) string {
 	case d.State == state.DaemonWaitingForAccess:
 		return fmt.Sprintf("waiting for Reminders access since %s (pid %d). Click Allow on the macOS prompt.", stamp(d.Since), d.PID)
 	case d.State == state.DaemonAccessDenied:
-		return fmt.Sprintf("stopped at %s because Reminders access was denied. Allow remindersync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.", stamp(d.Since))
+		return fmt.Sprintf("stopped at %s because Reminders access was denied. Allow ReminderSync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.", stamp(d.Since))
 	default:
 		return fmt.Sprintf("stopped at %s", stamp(d.Since))
 	}
