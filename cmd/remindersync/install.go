@@ -136,7 +136,7 @@ func askToNotify() {
 	case p == notify.Denied:
 		fmt.Println("Notifications are off, so failures only show in the log and `remindersync status`.\nTurn them on in System Settings > Notifications > ReminderSync.")
 	default:
-		fmt.Println("No answer yet. Allow the notification from ReminderSync when you see it.")
+		fmt.Println("No answer yet. macOS asks with a notification, which is easy to miss, so check\nSystem Settings > Notifications > ReminderSync and turn on Allow notifications.")
 	}
 }
 
