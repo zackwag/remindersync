@@ -162,11 +162,11 @@ func waitForDaemon(ctx context.Context, db *state.DB, prev *state.Daemon, timeou
 				return nil
 			case state.DaemonWaitingForAccess:
 				if !asked {
-					fmt.Println("macOS should be asking whether remindersync can access your reminders. Click Allow.")
+					fmt.Println("macOS should be asking whether ReminderSync can access your reminders. Click Allow.")
 					asked = true
 				}
 			case state.DaemonAccessDenied:
-				return errors.New("reminders access was denied. Allow remindersync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again")
+				return errors.New("reminders access was denied. Allow ReminderSync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again")
 			case state.DaemonStopped:
 				return fmt.Errorf("the daemon stopped right after starting; see %s", logPath)
 			}

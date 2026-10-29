@@ -86,7 +86,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	ek, err := eventkit.New()
 	if errors.Is(err, eventkit.ErrAccessDenied) {
 		setState(state.DaemonAccessDenied)
-		logger.Error("Reminders access denied. Allow remindersync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.")
+		logger.Error("Reminders access denied. Allow ReminderSync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.")
 		if err := notify.Send("Reminders access denied", "Allow ReminderSync in System Settings > Privacy & Security > Reminders, then run remindersync install again."); err != nil {
 			logger.Error("couldn't show an alert", "err", err)
 		}
