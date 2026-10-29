@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/zackwag/remindersync/compare/v0.2.0...v0.3.0) (2026-10-29)
+
+
+### Features
+
+* ship ReminderSync.app, signed and notarized, through the Homebrew tap ([#17](https://github.com/zackwag/remindersync/issues/17)) ([c50c394](https://github.com/zackwag/remindersync/commit/c50c394b6bc41ac58e33151ccd5ed6605bcac6c6))
+
 ## [0.2.0](https://github.com/zackwag/remindersync/compare/v0.1.0...v0.2.0) (2026-10-29)
 
 
