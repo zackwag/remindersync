@@ -200,6 +200,11 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 				s.log.Info("hub kept its own value; writing it to the target", "item", h.Title, "hub", kept.String())
 				targetChange = targetChange.with(kept)
 			}
+			if !targetChange.IsZero() {
+				if err := s.state.PutLink(ctx, s.pair.ID, s.halfway(a)); err != nil {
+					return err
+				}
+			}
 		}
 		if !targetChange.IsZero() {
 			if t, err = s.pair.Target.Update(ctx, t.ID, targetChange); err != nil {
@@ -234,6 +239,19 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 		return s.state.DeleteLink(ctx, s.pair.ID, a.Link.HubID)
 	}
 	return fmt.Errorf("unknown action kind %q", a.Kind)
+}
+
+// halfway builds the link to save between an update's hub and target writes.
+// The hub's baseline takes the change as asked, so anything the hub did
+// instead, or changed on its own, still shows as a hub change. The target's
+// baseline is the target as it is now. If the target write then fails, the
+// next sync retries it without writing the hub again. That matters because
+// completing a repeating reminder can't be repeated safely: each time adds a
+// completed copy and moves the date on.
+func (s *syncer) halfway(a Action) Link {
+	l := s.link(a.Hub, a.Target)
+	l.Hub = a.Link.Hub.with(a.HubChange)
+	return l
 }
 
 // overruled returns the hub's values for the fields where an update didn't

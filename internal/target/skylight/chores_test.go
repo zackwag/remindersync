@@ -61,6 +61,9 @@ func (f *fakeChores) UpdateChore(_ context.Context, frame, id string, upd api.Ch
 	if f.updateErr != nil {
 		return api.Chore{}, f.updateErr
 	}
+	if upd.Status != nil && (upd.Summary != nil || upd.Start != nil) {
+		return api.Chore{}, errors.New("skylight: 400: either update the completion status, or update non-completion attributes")
+	}
 	i := slices.IndexFunc(f.chores, func(ch api.Chore) bool { return ch.ID == id })
 	if upd.Summary != nil {
 		f.chores[i].Summary = *upd.Summary
@@ -164,16 +167,40 @@ func TestChoreUpdate(t *testing.T) {
 	if it != (engine.Item{ID: "1", Title: "Pay rent", Due: "2026-11-08"}) {
 		t.Errorf("returned %+v", it)
 	}
-	if u := f.updates[0]; u.Summary != nil || *u.Start != "2026-11-08" || *u.Status != api.ChorePending {
-		t.Errorf("sent %+v", u)
+	if len(f.updates) != 2 {
+		t.Fatalf("sent %d updates, want the date and the status separately", len(f.updates))
+	}
+	if u := f.updates[0]; u.Summary != nil || *u.Start != "2026-11-08" || u.Status != nil {
+		t.Errorf("first sent %+v", u)
+	}
+	if u := f.updates[1]; *u.Status != api.ChorePending {
+		t.Errorf("then sent %+v", u)
 	}
 
 	yes, title, empty := true, "Pay the rent", ""
+	f.updates = nil
 	if _, err := s.Update(ctx, "1", engine.Change{Title: &title, Completed: &yes, Due: &empty}); err != nil {
 		t.Fatal(err)
 	}
-	if u := f.updates[1]; *u.Summary != "Pay the rent" || u.Start != nil || *u.Status != api.ChoreComplete {
+	if u := f.updates[0]; *u.Summary != "Pay the rent" || u.Start != nil {
 		t.Errorf("sent %+v; an empty date should be left out", u)
+	}
+
+	f.updates = nil
+	if _, err := s.Update(ctx, "1", engine.Change{Completed: &no}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.updates) != 1 || *f.updates[0].Status != api.ChorePending {
+		t.Errorf("sent %+v, want only the status", f.updates)
+	}
+
+	f.updates = nil
+	it, err = s.Update(ctx, "1", engine.Change{Due: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.updates) != 1 || it.Title != "Pay the rent" {
+		t.Errorf("sent %+v and returned %+v, want an empty update that returns the chore", f.updates, it)
 	}
 
 	f.updateErr = errors.New("skylight: 500")

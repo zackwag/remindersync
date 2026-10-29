@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -146,6 +148,40 @@ func TestRepeatingHubItemMovesWithItsDate(t *testing.T) {
 	want := []string{"update " + tPay.ID + " completed=false due=2026-11-13"}
 	if !slices.Equal(f.target.writes, want) {
 		t.Errorf("target writes = %v, want %v", f.target.writes, want)
+	}
+	f.mustSettle(t)
+}
+
+// TestRepeatingHubItemIsCompletedOnceWhenTheTargetFails checks that a target
+// write failing after a repeating hub item was completed doesn't complete it
+// again on every retry.
+func TestRepeatingHubItemIsCompletedOnceWhenTheTargetFails(t *testing.T) {
+	f := newDateFixture(TwoWay)
+	pay := f.hub.add("Pay Jennifer", false)
+	f.hub.setDue(t, pay.ID, "2026-11-06")
+	f.hub.repeating = map[string]bool{pay.ID: true}
+	f.sync(t, Options{})
+	tPay := f.target.items[0]
+
+	f.target.set(t, tPay.ID, "Pay Jennifer", true)
+	f.target.setDue(t, tPay.ID, "2026-11-07")
+	f.target.updateErr = errInjected
+	for range 3 {
+		if _, err := Sync(context.Background(), f.pair, f.state, Options{Now: f.clock.Now}); !errors.Is(err, errInjected) {
+			t.Fatalf("err = %v, want the injected failure", err)
+		}
+	}
+	if n := len(f.hub.items); n != 2 {
+		t.Fatalf("hub has %d items, want the open one and one completed copy: %+v", n, f.hub.items)
+	}
+
+	f.heal()
+	f.sync(t, Options{})
+	if h := f.hub.items[0]; h.Completed || h.Due != "2026-11-14" {
+		t.Errorf("hub = %+v, want open and due a week after the target's date", h)
+	}
+	if tt := f.target.items[0]; tt.Completed || tt.Due != "2026-11-14" {
+		t.Errorf("target = %+v, want reopened on 2026-11-14", tt)
 	}
 	f.mustSettle(t)
 }

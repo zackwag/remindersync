@@ -86,6 +86,19 @@ func TestSyncWriteFailureResumes(t *testing.T) {
 			check:  wantTarget("Oat milk", false),
 		},
 		{
+			name: "saving the link between an update's writes",
+			dir:  TwoWay,
+			change: func(t *testing.T, f *fixture) {
+				f.hub.set(t, f.hub.items[0].ID, "Milk", true)
+				f.target.set(t, f.target.items[0].ID, "Oat milk", false)
+			},
+			inject: func(f *fixture) { f.state.fail["PutLink"] = errInjected },
+			check: func(t *testing.T, f *fixture) {
+				wantHub("Oat milk", true)(t, f)
+				wantTarget("Oat milk", true)(t, f)
+			},
+		},
+		{
 			name:   "target delete",
 			dir:    TwoWay,
 			change: func(t *testing.T, f *fixture) { f.hub.remove(t, f.hub.items[0].ID) },

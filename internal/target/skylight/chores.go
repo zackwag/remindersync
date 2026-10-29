@@ -92,22 +92,31 @@ func (s *ChoreStore) Create(ctx context.Context, from engine.Item) (engine.Item,
 }
 
 // Update writes the non-nil fields of change. A chore always has a date, so
-// an empty Due is ignored.
+// an empty Due is ignored. Skylight won't change a chore's status and its
+// other fields in one request, so a change to both is sent as two: the fields
+// first, then the status. A completed chore's fields can still be edited.
 func (s *ChoreStore) Update(ctx context.Context, id string, change engine.Change) (engine.Item, error) {
-	upd := api.ChoreUpdate{Summary: change.Title}
+	fields := api.ChoreUpdate{Summary: change.Title}
 	if change.Due != nil && *change.Due != "" {
-		upd.Start = change.Due
+		fields.Start = change.Due
+	}
+	var upds []api.ChoreUpdate
+	if fields.Summary != nil || fields.Start != nil || change.Completed == nil {
+		upds = append(upds, fields)
 	}
 	if change.Completed != nil {
 		status := api.ChorePending
 		if *change.Completed {
 			status = api.ChoreComplete
 		}
-		upd.Status = &status
+		upds = append(upds, api.ChoreUpdate{Status: &status})
 	}
-	ch, err := s.client.UpdateChore(ctx, s.frameID, id, upd)
-	if err != nil {
-		return engine.Item{}, err
+	var ch api.Chore
+	for _, upd := range upds {
+		var err error
+		if ch, err = s.client.UpdateChore(ctx, s.frameID, id, upd); err != nil {
+			return engine.Item{}, err
+		}
 	}
 	return choreItem(ch), nil
 }

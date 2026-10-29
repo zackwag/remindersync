@@ -111,6 +111,20 @@ func snapshot(it Item) Snapshot {
 	return Snapshot{Title: it.Title, Completed: it.Completed, Due: it.Due}
 }
 
+// with returns s with the fields set in c written to it.
+func (s Snapshot) with(c Change) Snapshot {
+	if c.Title != nil {
+		s.Title = *c.Title
+	}
+	if c.Completed != nil {
+		s.Completed = *c.Completed
+	}
+	if c.Due != nil {
+		s.Due = *c.Due
+	}
+	return s
+}
+
 // Link ties a hub item to a target item. Hub and Target are each side's
 // baseline: what that side returned at the last sync. A side has changed when
 // its current values differ from its own baseline.
