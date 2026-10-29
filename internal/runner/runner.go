@@ -116,7 +116,7 @@ func syncPair(ctx context.Context, p config.Pair, db *state.DB, open Opener, opt
 	if err != nil {
 		return engine.Result{}, fmt.Errorf("open %s: %w", p.Target, err)
 	}
-	return engine.Sync(ctx, engine.Pair{ID: p.ID, Direction: p.Direction, Hub: hub, Target: target}, db, engine.Options{
+	return engine.Sync(ctx, engine.Pair{ID: p.ID, Direction: p.Direction, Hub: hub, Target: target, Dates: p.Target.Dates()}, db, engine.Options{
 		DryRun: opts.DryRun,
 		Force:  opts.Force,
 		Now:    now,

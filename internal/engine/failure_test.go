@@ -86,6 +86,19 @@ func TestSyncWriteFailureResumes(t *testing.T) {
 			check:  wantTarget("Oat milk", false),
 		},
 		{
+			name: "saving the link between an update's writes",
+			dir:  TwoWay,
+			change: func(t *testing.T, f *fixture) {
+				f.hub.set(t, f.hub.items[0].ID, "Milk", true)
+				f.target.set(t, f.target.items[0].ID, "Oat milk", false)
+			},
+			inject: func(f *fixture) { f.state.fail["PutLink"] = errInjected },
+			check: func(t *testing.T, f *fixture) {
+				wantHub("Oat milk", true)(t, f)
+				wantTarget("Oat milk", true)(t, f)
+			},
+		},
+		{
 			name:   "target delete",
 			dir:    TwoWay,
 			change: func(t *testing.T, f *fixture) { f.hub.remove(t, f.hub.items[0].ID) },
@@ -244,9 +257,16 @@ func TestActionString(t *testing.T) {
 			Action{Kind: ActionUpdate, Hub: milk, HubChange: Change{Completed: ptr(true)}, TargetChange: Change{Title: ptr("Milk")}, Conflict: true},
 			`update "Milk": hub completed=true, target title="Milk" (conflict, hub wins)`,
 		},
+		{
+			Action{Kind: ActionUpdate, Hub: milk, TargetChange: Change{Completed: ptr(false), Due: ptr("2026-11-04")}},
+			`update "Milk": target completed=false due=2026-11-04`,
+		},
 		{Action{Kind: ActionAdopt, Hub: milk, Target: milk}, `link existing "Milk" on both sides`},
 		{Action{Kind: ActionCreateTarget, Hub: milk}, `create "Milk" on target`},
 		{Action{Kind: ActionCreateHub, Target: bread}, `create "Bread" in hub`},
+		{Action{Kind: ActionCreateTarget, Hub: Item{Title: "Rent", Due: "2026-11-01"}}, `create "Rent" on target, due 2026-11-01`},
+		{Action{Kind: ActionCreateHub, Target: Item{Title: "Rent", Due: "2026-11-01"}}, `create "Rent" in hub, due 2026-11-01`},
+		{Action{Kind: ActionRecreateTarget, Hub: Item{Title: "Haircut", Due: "2026-10-28", floating: true}}, `re-create "Haircut" on target, due today (it has no date)`},
 		{Action{Kind: ActionRecreateTarget, Hub: milk}, `re-create "Milk" on target`},
 		{Action{Kind: ActionDeleteTarget, Target: bread}, `delete "Bread" from target`},
 		{Action{Kind: ActionCompleteHub, Hub: milk}, `complete "Milk" in hub (deleted on target)`},

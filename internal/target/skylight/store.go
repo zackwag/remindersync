@@ -1,5 +1,5 @@
-// Package skylight is a target for pairs: an [engine.Store] over one Skylight
-// list.
+// Package skylight holds Skylight targets for pairs: [Store] over one list,
+// and [ChoreStore] over one person's chores.
 package skylight
 
 import (
@@ -65,9 +65,10 @@ func (s *Store) Items(ctx context.Context) ([]engine.Item, error) {
 	return items, nil
 }
 
-// Create adds a pending item to the list.
-func (s *Store) Create(ctx context.Context, title string) (engine.Item, error) {
-	li, err := s.client.AddListItem(ctx, s.frameID, s.listID, title)
+// Create adds a pending item to the list. Lists have no dates, so from.Due
+// is ignored.
+func (s *Store) Create(ctx context.Context, from engine.Item) (engine.Item, error) {
+	li, err := s.client.AddListItem(ctx, s.frameID, s.listID, from.Title)
 	if err != nil {
 		return engine.Item{}, err
 	}

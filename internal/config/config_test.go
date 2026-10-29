@@ -23,9 +23,16 @@ func pair(name, targetList string) Pair {
 	}
 }
 
+func chorePair(name, categoryID string) Pair {
+	p := pair(name, "")
+	p.Reminders = RemindersList{ListID: "8BCC4FE2", ListTitle: "Personal Reminders"}
+	p.Target = Target{Type: TargetSkylightChores, FrameID: "5760005", CategoryID: categoryID, Label: "Zack"}
+	return p
+}
+
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.toml")
-	want := Config{Pairs: []Pair{pair("groceries", "7763026"), pair("todo", "7763027")}}
+	want := Config{Pairs: []Pair{pair("groceries", "7763026"), pair("todo", "7763027"), chorePair("chores", "24197547")}}
 	want.Pairs[1].Direction = engine.OneWay
 
 	if err := Save(path, want); err != nil {
@@ -139,10 +146,13 @@ func TestValidate(t *testing.T) {
 		{"duplicate name", func(c *Config) { c.Pairs[1].Name = c.Pairs[0].Name }, `"groceries" is used twice`},
 		{"two pairs on one target", func(c *Config) { c.Pairs[1].Target.ListID = c.Pairs[0].Target.ListID }, "both sync to"},
 		{"two pairs on one Reminders list is fine", func(c *Config) { c.Pairs[1].Reminders = c.Pairs[0].Reminders }, ""},
+		{"chores without category", func(c *Config) { c.Pairs[2].Target.CategoryID = "" }, "needs frame_id and category_id"},
+		{"two pairs on one category", func(c *Config) { c.Pairs = append(c.Pairs, chorePair("more", "24197547")) }, "both sync to Skylight chores for Zack"},
+		{"two categories is fine", func(c *Config) { c.Pairs = append(c.Pairs, chorePair("amelia", "24197710")) }, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := Config{Pairs: []Pair{pair("groceries", "7763026"), pair("todo", "7763027")}}
+			c := Config{Pairs: []Pair{pair("groceries", "7763026"), pair("todo", "7763027"), chorePair("chores", "24197547")}}
 			tt.mutate(&c)
 			err := c.Validate()
 			switch {
@@ -164,6 +174,13 @@ func TestPairString(t *testing.T) {
 	p.Target.Type = "trello"
 	if got, want := p.String(), `groceries: Reminders "Groceries" -> trello`; got != want {
 		t.Errorf("got %s, want %s", got, want)
+	}
+	c := chorePair("chores", "24197547")
+	if got, want := c.String(), `chores: Reminders "Personal Reminders" <-> Skylight chores for Zack`; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+	if !c.Target.Dates() || p.Target.Dates() {
+		t.Error("only chores keep dates")
 	}
 }
 

@@ -27,13 +27,19 @@ func (f fakeReminders) Lists() ([]eventkit.List, error) { return f.lists, f.err 
 type fakeSkylight struct {
 	frames []skylight.Frame
 	lists  map[string][]skylight.List
-	err    error
+	cats   map[string][]skylight.Category
+	// err fails Frames, and listsErr and catsErr the others.
+	err, listsErr, catsErr error
 }
 
 func (f fakeSkylight) Frames(context.Context) ([]skylight.Frame, error) { return f.frames, f.err }
 
 func (f fakeSkylight) Lists(_ context.Context, frameID string) ([]skylight.List, error) {
-	return f.lists[frameID], nil
+	return f.lists[frameID], f.listsErr
+}
+
+func (f fakeSkylight) Categories(_ context.Context, frameID string) ([]skylight.Category, error) {
+	return f.cats[frameID], f.catsErr
 }
 
 var (
@@ -217,7 +223,7 @@ func TestTargetListCanOnlyBeUsedOnce(t *testing.T) {
 	}
 	for _, s := range []string{
 		`Grocery List (used by "groceries")`,
-		`"groceries" already syncs to that list`,
+		`"groceries" already syncs there`,
 		"Name for this pair [groceries-2]",
 		`There's already a pair named "groceries".`,
 		"Sync pairs:\n  groceries: ",
@@ -229,6 +235,57 @@ func TestTargetListCanOnlyBeUsedOnce(t *testing.T) {
 	cfg := load(t, r.path)
 	if len(cfg.Pairs) != 2 || cfg.Pairs[1].Name != "groceries-2" || cfg.Pairs[1].Target.ListID != "7763027" {
 		t.Errorf("saved %+v", cfg.Pairs)
+	}
+}
+
+// withChores is oneFrame with a chore chart, so the wizard asks whether to
+// sync to a list or someone's chores.
+func withChores() fakeSkylight {
+	sky := oneFrame
+	sky.cats = map[string][]skylight.Category{"5760005": {
+		{ID: "24197710", Label: "Amelia", ChoreChart: true},
+		{ID: "24197547", Label: "Zack", ChoreChart: true},
+		{ID: "9", Label: "Not on the chart"},
+	}}
+	return sky
+}
+
+func TestNewChorePair(t *testing.T) {
+	r := runWizard(t, "", lines(
+		"n",
+		"1", // Personal Reminders
+		"2", // someone's chores
+		"2", // Zack
+		"1", // two-way
+		"", "", "q",
+	), fakeReminders{lists: remindersLists}, withChores())
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if strings.Contains(r.out, "Not on the chart") {
+		t.Errorf("offered a category that isn't on the chore chart:\n%s", r.out)
+	}
+	p := load(t, r.path).Pairs[0]
+	want := config.Target{Type: config.TargetSkylightChores, FrameID: "5760005", CategoryID: "24197547", Label: "Zack"}
+	if p.Target != want || p.Name != "personal-reminders" || p.Direction != engine.TwoWay {
+		t.Errorf("saved %+v", p)
+	}
+
+	// The same person can't be picked twice, but a list on the same frame
+	// can still be.
+	r = runWizard(t, r.path, lines("n", "3", "2", "2", "1", "1", "", "", "q"), fakeReminders{lists: remindersLists}, withChores())
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if !strings.Contains(r.out, `Zack (used by "personal-reminders")`) {
+		t.Errorf("output:\n%s", r.out)
+	}
+	if p := load(t, r.path).Pairs[1]; p.Target.CategoryID != "24197710" {
+		t.Errorf("saved %+v", p.Target)
+	}
+	r = runWizard(t, r.path, lines("n", "3", "1", "1", "1", "family-list", "", "q"), fakeReminders{lists: remindersLists}, withChores())
+	if p := load(t, r.path).Pairs[2]; r.err != nil || p.Target.Type != config.TargetSkylight || p.Target.ListID != "7763026" {
+		t.Errorf("saved %+v, err %v", p.Target, r.err)
 	}
 }
 
@@ -321,6 +378,19 @@ func TestErrorsStopTheWizard(t *testing.T) {
 	}
 	if r := runWizard(t, "", lines("n", "1"), fakeReminders{lists: remindersLists}, fakeSkylight{err: boom}); !errors.Is(r.err, boom) {
 		t.Errorf("skylight: err = %v", r.err)
+	}
+	sky := withChores()
+	sky.catsErr = boom
+	if r := runWizard(t, "", lines("n", "1"), fakeReminders{lists: remindersLists}, sky); !errors.Is(r.err, boom) {
+		t.Errorf("categories: err = %v", r.err)
+	}
+	sky = withChores()
+	sky.listsErr = boom
+	if r := runWizard(t, "", lines("n", "1", "1"), fakeReminders{lists: remindersLists}, sky); !errors.Is(r.err, boom) {
+		t.Errorf("lists: err = %v", r.err)
+	}
+	if r := runWizard(t, "", lines("n", "1"), fakeReminders{lists: remindersLists}, withChores()); r.err != nil {
+		t.Errorf("end of input at the target question: err = %v", r.err)
 	}
 }
 

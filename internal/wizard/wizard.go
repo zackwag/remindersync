@@ -28,11 +28,12 @@ type RemindersLister interface {
 	Lists() ([]eventkit.List, error)
 }
 
-// SkylightBrowser lists Skylight frames and lists. *skylight.Client
-// implements it.
+// SkylightBrowser lists Skylight frames, lists and chore categories.
+// *skylight.Client implements it.
 type SkylightBrowser interface {
 	Frames(ctx context.Context) ([]skylight.Frame, error)
 	Lists(ctx context.Context, frameID string) ([]skylight.List, error)
+	Categories(ctx context.Context, frameID string) ([]skylight.Category, error)
 }
 
 // Wizard runs the menu. The Reminders and Skylight connections are opened
@@ -130,7 +131,6 @@ func (w *Wizard) newPair(ctx context.Context, cfg config.Config) error {
 
 	// Target. Skylight is the only one so far.
 	w.printf("\nTarget: Skylight\n")
-	p.Target.Type = config.TargetSkylight
 	sky, err := w.Skylight(ctx)
 	if err != nil {
 		return err
@@ -158,33 +158,50 @@ func (w *Wizard) newPair(ctx context.Context, cfg config.Config) error {
 		}
 		frame = frames[i]
 	}
-	skyLists, err := sky.Lists(ctx, frame.ID)
+	cats, err := sky.Categories(ctx, frame.ID)
 	if err != nil {
 		return err
 	}
-	if len(skyLists) == 0 {
-		w.printf("%s has no lists. Add one in the Skylight app first.\n", frame.Name)
-		return nil
-	}
-	w.printf("\nLists on %s:\n", frame.Name)
-	labels = make([]string, len(skyLists))
-	for i, l := range skyLists {
-		labels[i] = l.Label
-		if owner := targetOwner(cfg, frame.ID, l.ID); owner != "" {
-			labels[i] += fmt.Sprintf(" (used by %q)", owner)
+	var people []skylight.Category
+	for _, c := range cats {
+		if c.ChoreChart {
+			people = append(people, c)
 		}
 	}
-	for {
-		i, err := w.choose("Pick the destination list", labels)
+	chores := false
+	if len(people) > 0 {
+		w.printf("\nSync to:\n")
+		i, err := w.choose("Pick what to sync to", []string{
+			"A list",
+			"Someone's chores: reminders with due dates become chores on those dates",
+		})
 		if err != nil {
 			return err
 		}
-		if owner := targetOwner(cfg, frame.ID, skyLists[i].ID); owner != "" {
-			w.printf("%q already syncs to that list, and two pairs would fight over it. Pick another.\n", owner)
-			continue
+		chores = i == 1
+	}
+	var options []config.Target
+	if chores {
+		w.printf("\nChore chart on %s:\n", frame.Name)
+		for _, c := range people {
+			options = append(options, config.Target{Type: config.TargetSkylightChores, FrameID: frame.ID, CategoryID: c.ID, Label: c.Label})
 		}
-		p.Target.FrameID, p.Target.ListID, p.Target.Label = frame.ID, skyLists[i].ID, skyLists[i].Label
-		break
+	} else {
+		skyLists, err := sky.Lists(ctx, frame.ID)
+		if err != nil {
+			return err
+		}
+		if len(skyLists) == 0 {
+			w.printf("%s has no lists. Add one in the Skylight app first.\n", frame.Name)
+			return nil
+		}
+		w.printf("\nLists on %s:\n", frame.Name)
+		for _, l := range skyLists {
+			options = append(options, config.Target{Type: config.TargetSkylight, FrameID: frame.ID, ListID: l.ID, Label: l.Label})
+		}
+	}
+	if p.Target, err = w.chooseTarget(cfg, options); err != nil {
+		return err
 	}
 
 	// Direction.
@@ -257,6 +274,29 @@ func (w *Wizard) deletePair(cfg config.Config) error {
 	}
 	w.printf("Deleted %q.\n", p.Name)
 	return nil
+}
+
+// chooseTarget asks for one of options, refusing any that another pair
+// already syncs to.
+func (w *Wizard) chooseTarget(cfg config.Config, options []config.Target) (config.Target, error) {
+	labels := make([]string, len(options))
+	for i, t := range options {
+		labels[i] = t.Label
+		if owner := targetOwner(cfg, t); owner != "" {
+			labels[i] += fmt.Sprintf(" (used by %q)", owner)
+		}
+	}
+	for {
+		i, err := w.choose("Pick the destination", labels)
+		if err != nil {
+			return config.Target{}, err
+		}
+		if owner := targetOwner(cfg, options[i]); owner != "" {
+			w.printf("%q already syncs there, and two pairs would fight over it. Pick another.\n", owner)
+			continue
+		}
+		return options[i], nil
+	}
 }
 
 // choose prints numbered options and asks until it gets a valid number.
@@ -343,11 +383,11 @@ func describeList(l eventkit.List) string {
 	return " (" + strings.Join(notes, ", ") + ")"
 }
 
-// targetOwner returns the name of the pair already syncing to a Skylight
-// list, or "".
-func targetOwner(cfg config.Config, frameID, listID string) string {
+// targetOwner returns the name of the pair already syncing to t, or "".
+func targetOwner(cfg config.Config, t config.Target) string {
 	for _, p := range cfg.Pairs {
-		if p.Target.Type == config.TargetSkylight && p.Target.FrameID == frameID && p.Target.ListID == listID {
+		pt := p.Target
+		if pt.Type == t.Type && pt.FrameID == t.FrameID && pt.ListID == t.ListID && pt.CategoryID == t.CategoryID {
 			return p.Name
 		}
 	}

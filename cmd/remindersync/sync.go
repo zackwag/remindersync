@@ -138,7 +138,7 @@ func (o *opener) Hub(p config.Pair) (engine.Store, error) {
 }
 
 func (o *opener) Target(_ context.Context, p config.Pair) (engine.Store, error) {
-	if p.Target.Type != config.TargetSkylight {
+	if p.Target.Type != config.TargetSkylight && p.Target.Type != config.TargetSkylightChores {
 		return nil, fmt.Errorf("unknown target type %q", p.Target.Type)
 	}
 	if o.sky == nil {
@@ -147,6 +147,9 @@ func (o *opener) Target(_ context.Context, p config.Pair) (engine.Store, error) 
 			return nil, err
 		}
 		o.sky = c
+	}
+	if p.Target.Type == config.TargetSkylightChores {
+		return skylightstore.NewChoreStore(o.sky, p.Target.FrameID, p.Target.CategoryID, nil), nil
 	}
 	return skylightstore.NewStore(o.sky, p.Target.FrameID, p.Target.ListID), nil
 }

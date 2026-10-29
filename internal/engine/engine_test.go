@@ -25,7 +25,17 @@ func newFixture(dir Direction) *fixture {
 		target: newMemStore("t", clock),
 		state:  newMemState(),
 	}
+	// Reminders keeps due dates. Targets do only in date tests.
+	f.hub.dates = true
 	f.pair = Pair{ID: "p", Direction: dir, Hub: f.hub, Target: f.target}
+	return f
+}
+
+// newDateFixture is a pair whose target keeps dates, like Skylight chores.
+func newDateFixture(dir Direction) *fixture {
+	f := newFixture(dir)
+	f.target.dates = true
+	f.pair.Dates = true
 	return f
 }
 

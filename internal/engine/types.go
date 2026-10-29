@@ -7,22 +7,33 @@ import (
 	"time"
 )
 
-// Item is one entry in a list, reduced to the fields every store supports.
+// DateLayout is the format of [Item.Due].
+const DateLayout = "2006-01-02"
+
+// Item is one entry in a list, reduced to the fields the stores support.
 type Item struct {
 	ID        string
 	Title     string
 	Completed bool
+	// Due is the due date as YYYY-MM-DD in local time, or "" for none. It's
+	// only synced on pairs whose target keeps dates (see [Pair.Dates]).
+	Due string
 
 	// CreatedAt is when the store created the item. It's only used to recover
 	// from a crash in the middle of a create, and is zero if the store doesn't
 	// know.
 	CreatedAt time.Time
+
+	// floating marks a hub item with no due date that was given today's
+	// date for a target that needs one.
+	floating bool
 }
 
 // Change holds the fields to write to an item. Nil fields are left alone.
 type Change struct {
 	Title     *string
 	Completed *bool
+	Due       *string
 }
 
 // with returns c with the fields set in o replacing its own.
@@ -33,12 +44,15 @@ func (c Change) with(o Change) Change {
 	if o.Completed != nil {
 		c.Completed = o.Completed
 	}
+	if o.Due != nil {
+		c.Due = o.Due
+	}
 	return c
 }
 
 // IsZero reports whether the change writes nothing.
 func (c Change) IsZero() bool {
-	return c.Title == nil && c.Completed == nil
+	return c.Title == nil && c.Completed == nil && c.Due == nil
 }
 
 func (c Change) String() string {
@@ -49,6 +63,9 @@ func (c Change) String() string {
 	if c.Completed != nil {
 		parts = append(parts, fmt.Sprintf("completed=%t", *c.Completed))
 	}
+	if c.Due != nil {
+		parts = append(parts, "due="+*c.Due)
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -58,8 +75,9 @@ type Store interface {
 	// returns the complete list or an error, never a partial list.
 	Items(ctx context.Context) ([]Item, error)
 
-	// Create adds an incomplete item and returns it as stored.
-	Create(ctx context.Context, title string) (Item, error)
+	// Create adds an incomplete item with from's title, and its due date if
+	// the store keeps dates, and returns it as stored.
+	Create(ctx context.Context, from Item) (Item, error)
 
 	// Update writes the non-nil fields of change and returns the item as
 	// stored.
@@ -86,10 +104,25 @@ const (
 type Snapshot struct {
 	Title     string
 	Completed bool
+	Due       string
 }
 
 func snapshot(it Item) Snapshot {
-	return Snapshot{Title: it.Title, Completed: it.Completed}
+	return Snapshot{Title: it.Title, Completed: it.Completed, Due: it.Due}
+}
+
+// with returns s with the fields set in c written to it.
+func (s Snapshot) with(c Change) Snapshot {
+	if c.Title != nil {
+		s.Title = *c.Title
+	}
+	if c.Completed != nil {
+		s.Completed = *c.Completed
+	}
+	if c.Due != nil {
+		s.Due = *c.Due
+	}
+	return s
 }
 
 // Link ties a hub item to a target item. Hub and Target are each side's

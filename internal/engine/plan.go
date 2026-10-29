@@ -70,11 +70,11 @@ func (a Action) String() string {
 	case ActionAdopt:
 		return fmt.Sprintf("link existing %q on both sides", a.Hub.Title)
 	case ActionCreateTarget:
-		return fmt.Sprintf("create %q on target", a.Hub.Title)
+		return fmt.Sprintf("create %q on target%s", a.Hub.Title, dueSuffix(a.Hub))
 	case ActionCreateHub:
-		return fmt.Sprintf("create %q in hub", a.Target.Title)
+		return fmt.Sprintf("create %q in hub%s", a.Target.Title, dueSuffix(a.Target))
 	case ActionRecreateTarget:
-		return fmt.Sprintf("re-create %q on target", a.Hub.Title)
+		return fmt.Sprintf("re-create %q on target%s", a.Hub.Title, dueSuffix(a.Hub))
 	case ActionDeleteTarget:
 		return fmt.Sprintf("delete %q from target", a.Target.Title)
 	case ActionCompleteHub:
@@ -83,6 +83,17 @@ func (a Action) String() string {
 		return fmt.Sprintf("stop tracking %q", a.Link.Hub.Title)
 	}
 	return string(a.Kind)
+}
+
+// dueSuffix describes an item's date for a create, if it has one.
+func dueSuffix(it Item) string {
+	switch {
+	case it.floating:
+		return ", due today (it has no date)"
+	case it.Due != "":
+		return ", due " + it.Due
+	}
+	return ""
 }
 
 // plan works out what a sync should do, without doing it. See the sync
@@ -158,7 +169,19 @@ func planUpdate(dir Direction, l Link, h, t Item) (Action, bool) {
 		mergeField(dir, h.Title, l.Hub.Title, t.Title, l.Target.Title)
 	a.HubChange.Completed, a.TargetChange.Completed, completedConflict =
 		mergeField(dir, h.Completed, l.Hub.Completed, t.Completed, l.Target.Completed)
-	a.Conflict = titleConflict || completedConflict
+	// A completed hub item with no date has nothing to say about the target's
+	// date, and every other hub item has one when the target keeps dates.
+	var dueConflict bool
+	if h.Due != "" {
+		a.HubChange.Due, a.TargetChange.Due, dueConflict =
+			mergeField(dir, h.Due, l.Hub.Due, t.Due, l.Target.Due)
+		// A floating item's date is a stand-in, so it's never written to the
+		// hub. A date changed on the target is put back instead.
+		if h.floating && a.HubChange.Due != nil {
+			a.HubChange.Due, a.TargetChange.Due = nil, &h.Due
+		}
+	}
+	a.Conflict = titleConflict || completedConflict || dueConflict
 	return a, true
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	eventkit "github.com/BRO3886/go-eventkit/reminders"
 
@@ -29,6 +30,7 @@ var (
 type Client interface {
 	Lists() ([]eventkit.List, error)
 	Reminders(opts ...eventkit.ListOption) ([]eventkit.Reminder, error)
+	Reminder(id string) (*eventkit.Reminder, error)
 	CreateReminder(input eventkit.CreateReminderInput) (*eventkit.Reminder, error)
 	UpdateReminder(id string, input eventkit.UpdateReminderInput) (*eventkit.Reminder, error)
 	DeleteReminders(ids []string) map[string]error
@@ -73,8 +75,9 @@ func (s *Store) Items(ctx context.Context) ([]engine.Item, error) {
 	return items, nil
 }
 
-// Create adds an incomplete reminder to the list.
-func (s *Store) Create(ctx context.Context, title string) (engine.Item, error) {
+// Create adds an incomplete reminder to the list, due on from.Due if it has
+// one.
+func (s *Store) Create(ctx context.Context, from engine.Item) (engine.Item, error) {
 	if err := ctx.Err(); err != nil {
 		return engine.Item{}, err
 	}
@@ -90,7 +93,15 @@ func (s *Store) Create(ctx context.Context, title string) (engine.Item, error) {
 		}
 	}
 
-	r, err := s.client.CreateReminder(eventkit.CreateReminderInput{Title: title, ListName: list.Title})
+	input := eventkit.CreateReminderInput{Title: from.Title, ListName: list.Title}
+	if from.Due != "" {
+		due, err := dueTime(from.Due, nil)
+		if err != nil {
+			return engine.Item{}, err
+		}
+		input.DueDate = &due
+	}
+	r, err := s.client.CreateReminder(input)
 	if err != nil {
 		return engine.Item{}, err
 	}
@@ -99,22 +110,36 @@ func (s *Store) Create(ctx context.Context, title string) (engine.Item, error) {
 		// name check missed something. Don't leave a stray reminder behind.
 		cleanup := s.client.DeleteReminders([]string{r.ID})[r.ID]
 		return engine.Item{}, errors.Join(
-			fmt.Errorf("reminders: %q was created in list %q, not %q", title, r.List, list.Title),
+			fmt.Errorf("reminders: %q was created in list %q, not %q", from.Title, r.List, list.Title),
 			cleanup)
 	}
 	return toItem(*r), nil
 }
 
 // Update writes the non-nil fields of change. Fields the engine doesn't sync,
-// such as notes, due dates and priority, are never touched.
+// such as notes and priority, are never touched. A new due date keeps the
+// reminder's time of day, if it has one.
 func (s *Store) Update(ctx context.Context, id string, change engine.Change) (engine.Item, error) {
 	if err := ctx.Err(); err != nil {
 		return engine.Item{}, err
 	}
-	r, err := s.client.UpdateReminder(id, eventkit.UpdateReminderInput{
-		Title:     change.Title,
-		Completed: change.Completed,
-	})
+	input := eventkit.UpdateReminderInput{Title: change.Title, Completed: change.Completed}
+	switch {
+	case change.Due == nil:
+	case *change.Due == "":
+		input.ClearDueDate = true
+	default:
+		cur, err := s.client.Reminder(id)
+		if err != nil {
+			return engine.Item{}, err
+		}
+		due, err := dueTime(*change.Due, cur.DueDate)
+		if err != nil {
+			return engine.Item{}, err
+		}
+		input.DueDate = &due
+	}
+	r, err := s.client.UpdateReminder(id, input)
 	if err != nil {
 		return engine.Item{}, err
 	}
@@ -146,8 +171,26 @@ func (s *Store) list() (eventkit.List, []eventkit.List, error) {
 
 func toItem(r eventkit.Reminder) engine.Item {
 	it := engine.Item{ID: r.ID, Title: r.Title, Completed: r.Completed}
+	if r.DueDate != nil {
+		it.Due = r.DueDate.Local().Format(engine.DateLayout)
+	}
 	if r.CreatedAt != nil {
 		it.CreatedAt = *r.CreatedAt
 	}
 	return it
+}
+
+// dueTime is midnight local time on date, or the time of day of cur if the
+// reminder already has one. go-eventkit always writes a time with a due date,
+// so a reminder that had only a date gets midnight.
+func dueTime(date string, cur *time.Time) (time.Time, error) {
+	d, err := time.ParseInLocation(engine.DateLayout, date, time.Local)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("reminders: due date: %w", err)
+	}
+	if cur != nil {
+		c := cur.Local()
+		d = time.Date(d.Year(), d.Month(), d.Day(), c.Hour(), c.Minute(), c.Second(), 0, time.Local)
+	}
+	return d, nil
 }
