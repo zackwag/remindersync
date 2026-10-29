@@ -116,29 +116,16 @@ func TestFailedNotifyIsLoggedNotRetried(t *testing.T) {
 	}
 }
 
-func TestNotify(t *testing.T) {
-	if err := run("true"); err != nil {
-		t.Fatalf("the real run failed: %v", err)
+func TestLongMessagesAreCut(t *testing.T) {
+	f := newFixture()
+	f.t.Report("family", errors.New(strings.Repeat("é", maxMessage+10)))
+	f.now = f.now.Add(time.Hour)
+	f.t.Report("family", errors.New(strings.Repeat("é", maxMessage+10)))
+	if len(f.alerts) != 1 {
+		t.Fatalf("alerts = %v", f.alerts)
 	}
-	orig := run
-	t.Cleanup(func() { run = orig })
-	var got []string
-	run = func(name string, args ...string) error {
-		got = append([]string{name}, args...)
-		return nil
-	}
-
-	if err := Notify(`family isn't syncing`, `say "hi"`); err != nil {
-		t.Fatal(err)
-	}
-	if got[0] != "osascript" || got[len(got)-2] != "family isn't syncing" || got[len(got)-1] != `say "hi"` {
-		t.Errorf("ran %q; the text should be passed as arguments", got)
-	}
-
-	if err := Notify("s", strings.Repeat("é", maxMessage+10)); err != nil {
-		t.Fatal(err)
-	}
-	if m := []rune(got[len(got)-1]); len(m) != maxMessage || m[len(m)-1] != '…' {
-		t.Errorf("message is %d runes, want it cut to %d", len(m), maxMessage)
+	body := []rune(strings.TrimPrefix(f.alerts[0], "family isn't syncing: "))
+	if len(body) != maxMessage || body[len(body)-1] != '…' {
+		t.Errorf("message is %d runes, want it cut to %d", len(body), maxMessage)
 	}
 }

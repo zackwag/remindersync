@@ -13,6 +13,7 @@ import (
 	"github.com/zackwag/remindersync/internal/config"
 	"github.com/zackwag/remindersync/internal/credentials"
 	"github.com/zackwag/remindersync/internal/launchd"
+	"github.com/zackwag/remindersync/internal/notify"
 	"github.com/zackwag/remindersync/internal/runner"
 	"github.com/zackwag/remindersync/internal/state"
 )
@@ -111,7 +112,32 @@ func runInstall(ctx context.Context, args []string) error {
 	} else {
 		fmt.Printf("Copied remindersync to %s\nand loaded %s.\n", ip.bin, ip.plist)
 	}
-	return waitForDaemon(ctx, db, prev, *wait, ip.log)
+	if err := waitForDaemon(ctx, db, prev, *wait, ip.log); err != nil {
+		return err
+	}
+	if bundle != "" {
+		askToNotify()
+	}
+	return nil
+}
+
+// askToNotify asks for permission to show notifications, which the daemon
+// uses to say a pair keeps failing. Asking here rather than from the daemon
+// means the prompt appears while someone's at the Mac. The answer applies to
+// the app, so it covers the daemon too.
+func askToNotify() {
+	fmt.Println("Asking whether ReminderSync can send notifications, to tell you when a pair keeps failing.")
+	p, err := notify.Authorize(time.Minute)
+	switch {
+	case err != nil:
+		fmt.Printf("Couldn't ask: %v\n", err)
+	case p == notify.Allowed:
+		fmt.Println("Notifications are on.")
+	case p == notify.Denied:
+		fmt.Println("Notifications are off, so failures only show in the log and `remindersync status`.\nTurn them on in System Settings > Notifications > ReminderSync.")
+	default:
+		fmt.Println("No answer yet. Allow the notification from ReminderSync when you see it.")
+	}
 }
 
 // waitForDaemon waits for the newly loaded daemon to report that it's running,

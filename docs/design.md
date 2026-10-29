@@ -275,7 +275,7 @@ A daemon that fails quietly is worse than none, because the lists drift apart wh
 
 Streaks live in memory, so a daemon restart starts them over. That can delay an alert by up to 10 minutes, or repeat one after a restart, which is cheaper than another table.
 
-Notifications go through `osascript -e 'display notification'`, with the text passed as arguments so quotes in an error can't break the script. That needs no app bundle, but it means they show as coming from Script Editor, and they depend on Script Editor's notification setting. A native `UNUserNotificationCenter` notification needs a signed app bundle, which the daemon deliberately doesn't have (see [Running it](#running-it)).
+Notifications come from ReminderSync.app through the UserNotifications framework (`internal/notify`, in Objective-C through cgo). They belong to the app's bundle, so they only work in a process running the app's binary: the daemon, or a command run from the app. `install` asks for permission, so the prompt appears while someone's at the Mac. macOS finds a process's app from the path it was started by, so a command run through a symlink, such as Homebrew's `/opt/homebrew/bin/remindersync`, first re-execs the app's binary by its real path. A plain `go run` build has no app, so it logs failures without notifying.
 
 ## Dismissed alternatives
 
@@ -293,6 +293,7 @@ Notifications go through `osascript -e 'display notification'`, with the text pa
 | `mattn/go-sqlite3` | Needs cgo. `modernc.org/sqlite` is pure Go, so Linux CI keeps building without a C toolchain. EventKit already needs cgo on darwin, but that's the only place. |
 | A Homebrew formula that builds from source | Every build would be signed ad hoc, so every `brew upgrade` would ask for Reminders access again. A cask ships one signed, notarized build. |
 | Signing with a self-signed certificate | Works for TCC, but it's a certificate only this Mac trusts, and releases couldn't be notarized. The Developer ID already exists for my other apps. |
+| `osascript -e 'display notification'` | Needs no bundle, but notifications show as coming from Script Editor and depend on its notification setting. |
 | Alerting through Home Assistant or a push service | Reaches a phone, but needs a URL and a token in the Keychain, and a failure that's really HA being down would go unreported. A local notification needs no setup. |
 | Pairs stored in SQLite | Config is what you meant to happen, and state is a cache of what happened. Keeping them apart means `state.db` can be deleted as a last resort and rebuilt with a first sync, and `config.toml` can be read and edited by hand. |
 

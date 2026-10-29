@@ -16,6 +16,7 @@ import (
 	"github.com/zackwag/remindersync/internal/config"
 	"github.com/zackwag/remindersync/internal/daemon"
 	"github.com/zackwag/remindersync/internal/lock"
+	"github.com/zackwag/remindersync/internal/notify"
 	"github.com/zackwag/remindersync/internal/runner"
 	"github.com/zackwag/remindersync/internal/state"
 )
@@ -84,7 +85,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	if errors.Is(err, eventkit.ErrAccessDenied) {
 		setState(state.DaemonAccessDenied)
 		logger.Error("Reminders access denied. Allow remindersync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.")
-		if err := alert.Notify("Reminders access denied", "Allow remindersync in System Settings > Privacy & Security > Reminders, then run remindersync install again."); err != nil {
+		if err := notify.Send("Reminders access denied", "Allow ReminderSync in System Settings > Privacy & Security > Reminders, then run remindersync install again."); err != nil {
 			logger.Error("couldn't show an alert", "err", err)
 		}
 		// A clean exit, so launchd doesn't restart it into the same refusal.
@@ -112,7 +113,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	alerts := &alert.Tracker{After: alertAfter, Now: time.Now, Notify: alert.Notify, Logger: logger}
+	alerts := &alert.Tracker{After: alertAfter, Now: time.Now, Notify: notify.Send, Logger: logger}
 	out := daemon.LogWriter(os.Stdout, time.Now)
 	err = daemon.Run(ctx, daemon.Options{
 		Changes: changes,

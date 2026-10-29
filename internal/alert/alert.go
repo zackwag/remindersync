@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os/exec"
 	"time"
 
 	"github.com/zackwag/remindersync/internal/credentials"
@@ -25,8 +24,8 @@ const maxMessage = 240
 type Tracker struct {
 	After time.Duration
 	Now   func() time.Time
-	// Notify shows an alert. [Notify] is the real one.
-	Notify func(subtitle, message string) error
+	// Notify shows an alert, such as [notify.Send].
+	Notify func(title, body string) error
 	Logger *slog.Logger
 
 	failing map[string]*streak
@@ -61,9 +60,12 @@ func (t *Tracker) Report(name string, err error) {
 	t.send(name+" isn't syncing", err.Error())
 }
 
-func (t *Tracker) send(subtitle, message string) {
-	if err := t.Notify(subtitle, message); err != nil {
-		t.Logger.Error("couldn't show an alert", "subtitle", subtitle, "err", err)
+func (t *Tracker) send(title, body string) {
+	if r := []rune(body); len(r) > maxMessage {
+		body = string(r[:maxMessage-1]) + "…"
+	}
+	if err := t.Notify(title, body); err != nil {
+		t.Logger.Error("couldn't show an alert", "title", title, "err", err)
 	}
 }
 
@@ -84,24 +86,4 @@ func NeedsYou(err error) bool {
 	}
 	var apiErr *skylight.APIError
 	return errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound)
-}
-
-// run starts a command and waits for it. Tests replace it.
-var run = func(name string, args ...string) error {
-	return exec.Command(name, args...).Run()
-}
-
-// Notify shows a macOS notification titled remindersync. It goes through
-// osascript, which needs no app bundle, so it shows as coming from Script
-// Editor. The text is passed as arguments rather than written into the
-// script, so quotes in it can't break out.
-func Notify(subtitle, message string) error {
-	if r := []rune(message); len(r) > maxMessage {
-		message = string(r[:maxMessage-1]) + "…"
-	}
-	return run("osascript",
-		"-e", "on run argv",
-		"-e", `display notification (item 2 of argv) with title "remindersync" subtitle (item 1 of argv)`,
-		"-e", "end run",
-		subtitle, message)
 }

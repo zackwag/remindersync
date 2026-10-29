@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/zackwag/remindersync/internal/launchd"
 	"github.com/zackwag/remindersync/internal/mainloop"
 )
 
@@ -31,9 +33,32 @@ Run "remindersync <command> -h" for details.
 `
 
 func main() {
+	reexecInBundle()
 	// The main thread runs the run loop that EventKit needs to report
 	// changes made by other apps, so the command runs on another goroutine.
 	mainloop.Run(realMain)
+}
+
+// reexecInBundle replaces the process with the app's own binary when it was
+// started through a symlink into an app bundle, such as Homebrew's
+// /opt/homebrew/bin/remindersync. macOS finds a process's app from the path
+// it was started by, so through the symlink, notifications would see no app.
+// The re-exec'd process is started by the real path, so it doesn't loop.
+func reexecInBundle() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	target, err := filepath.EvalSymlinks(exe)
+	if err != nil || target == exe {
+		return
+	}
+	if _, ok := launchd.InBundle(target); !ok {
+		return
+	}
+	// Only returns if it fails, and then running from the symlink still
+	// works apart from notifications.
+	_ = syscall.Exec(target, os.Args, os.Environ())
 }
 
 // realMain holds main's body so deferred calls run before os.Exit.
