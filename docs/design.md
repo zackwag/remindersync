@@ -263,7 +263,7 @@ Releases follow the pattern of my other Mac apps. release-please tags the releas
 
 A failed release can be re-run. The tap branch is force-pushed and an open PR for it is reused, so a re-run picks up where the last one stopped. A re-run uses the workflow as it was at the tag, so when the workflow itself needed fixing, it can be started by hand with `workflow_dispatch` and the tag to build.
 
-The app is `LSUIElement`, so it has no Dock icon, and opening it from Finder just prints usage. It's a bundle so it has a stable identity: a bundle ID for TCC, a name in System Settings, and later, native notifications. The entitlements file asks for calendar access (`com.apple.security.personal-information.calendars`) in case the hardened runtime needs it for EventKit. It hasn't been tried without it.
+The app is `LSUIElement`, so it has no Dock icon, and opening it from Finder just prints usage. Its icon is drawn by `packaging/make-icon.swift`, and `scripts/make-icon.sh` regenerates `packaging/AppIcon.icns` from it, so changing the icon is a code change rather than an image edit. It's a bundle so it has a stable identity: a bundle ID for TCC, a name in System Settings, and later, native notifications. The entitlements file asks for calendar access (`com.apple.security.personal-information.calendars`) in case the hardened runtime needs it for EventKit. It hasn't been tried without it.
 
 ## Dismissed alternatives
 

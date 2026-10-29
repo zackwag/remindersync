@@ -44,7 +44,8 @@ for arch in arm64 amd64; do
 done
 
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$root/packaging/AppIcon.icns" "$app/Contents/Resources/"
 lipo -create -output "$app/Contents/MacOS/remindersync" "$work/remindersync-arm64" "$work/remindersync-amd64"
 sed "s/__VERSION__/$version/g" "$root/packaging/Info.plist" > "$app/Contents/Info.plist"
 
