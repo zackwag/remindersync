@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,6 +172,67 @@ func TestCancelStopsWithoutCancellingTheSync(t *testing.T) {
 	h.done <- nil
 	if ctx.Err() != nil {
 		t.Error("the sync's context was cancelled with the daemon's")
+	}
+}
+
+func TestReplacedBinaryStopsAfterTheSync(t *testing.T) {
+	var replaced atomic.Bool
+	h := start(t, Options{Debounce: 10 * time.Millisecond, Replaced: replaced.Load})
+	h.waitSync(t)
+	replaced.Store(true)
+	h.changes <- struct{}{}
+	h.waitSync(t)
+	if err := <-h.done; !errors.Is(err, ErrReplaced) {
+		t.Errorf("err = %v, want ErrReplaced", err)
+	}
+	h.done <- nil
+}
+
+func TestReplaced(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remindersync")
+	if err := os.WriteFile(path, []byte("v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Replaced(path + ".missing"); err == nil {
+		t.Error("watching a missing file didn't fail")
+	}
+	replaced, err := Replaced(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced() {
+		t.Fatal("replaced before anything changed")
+	}
+
+	// Swapped in, like an installer's rename or `brew upgrade`.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte("v2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+	if !replaced() {
+		t.Error("a swapped-in file wasn't noticed")
+	}
+
+	// Rewritten in place.
+	if replaced, err = Replaced(path); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if !replaced() {
+		t.Error("a changed file wasn't noticed")
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if !replaced() {
+		t.Error("a removed file wasn't noticed")
 	}
 }
 

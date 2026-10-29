@@ -94,6 +94,17 @@ func runDaemon(ctx context.Context, args []string) error {
 	defer setState(state.DaemonStopped)
 
 	op := &opener{verbose: *verbose, ek: ek}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return err
+	}
+	replaced, err := daemon.Replaced(exe)
+	if err != nil {
+		return err
+	}
 	out := daemon.LogWriter(os.Stdout, time.Now)
 	err = daemon.Run(ctx, daemon.Options{
 		Changes: changes,
@@ -114,6 +125,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		Poll:     *poll,
 		Debounce: 2 * time.Second,
 		Retry:    10 * time.Second,
+		Replaced: replaced,
 		Logger:   logger,
 	})
 	logger.Info("stopping")
