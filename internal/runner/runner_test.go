@@ -167,6 +167,7 @@ func TestSyncAllPairs(t *testing.T) {
 		"  Linked items:       2",
 		"  Last sync:          "+f.now.Local().Format("2006-01-02 15:04:05")+", 2 changes",
 		"  Linked items:       0",
+		"  Days ahead:         7",
 		", 0 changes",
 	)
 }
@@ -388,6 +389,8 @@ func TestChorePairsSyncDates(t *testing.T) {
 	f.open.hubs["chores"] = &list{prefix: "h"}
 	f.open.targets["chores"] = &list{prefix: "t"}
 	f.open.hubs["chores"].add("Get a haircut")
+	f.open.hubs["chores"].add("Replace smoke alarm")
+	f.open.hubs["chores"].items[1].Due = f.now.Local().AddDate(0, 0, config.DefaultChoreDaysAhead+1).Format(engine.DateLayout)
 
 	out, err := f.sync(t, Options{})
 	if err != nil {
@@ -399,4 +402,8 @@ func TestChorePairsSyncDates(t *testing.T) {
 	if got := f.open.targets["chores"].items[0].Due; got != f.now.Local().Format(engine.DateLayout) {
 		t.Errorf("chore due = %q, want today", got)
 	}
+	if n := len(f.open.targets["chores"].items); n != 1 {
+		t.Errorf("target has %d chores, want the one due further out held back", n)
+	}
+	mustContain(t, f.status(t), "  Days ahead:         1")
 }

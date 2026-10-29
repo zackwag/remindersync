@@ -34,6 +34,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.toml")
 	want := Config{Pairs: []Pair{pair("groceries", "7763026"), pair("todo", "7763027"), chorePair("chores", "24197547")}}
 	want.Pairs[1].Direction = engine.OneWay
+	want.Pairs[2].Target.DaysAhead = new(3)
 
 	if err := Save(path, want); err != nil {
 		t.Fatal(err)
@@ -149,6 +150,9 @@ func TestValidate(t *testing.T) {
 		{"chores without category", func(c *Config) { c.Pairs[2].Target.CategoryID = "" }, "needs frame_id and category_id"},
 		{"two pairs on one category", func(c *Config) { c.Pairs = append(c.Pairs, chorePair("more", "24197547")) }, "both sync to Skylight chores for Zack"},
 		{"two categories is fine", func(c *Config) { c.Pairs = append(c.Pairs, chorePair("amelia", "24197710")) }, ""},
+		{"negative days ahead", func(c *Config) { c.Pairs[0].Target.DaysAhead = new(-1) }, "days_ahead must be from 0 to 365, got -1"},
+		{"too many days ahead", func(c *Config) { c.Pairs[2].Target.DaysAhead = new(366) }, "got 366"},
+		{"zero days ahead is fine", func(c *Config) { c.Pairs[0].Target.DaysAhead = new(0) }, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -181,6 +185,20 @@ func TestPairString(t *testing.T) {
 	}
 	if !c.Target.Dates() || p.Target.Dates() {
 		t.Error("only chores keep dates")
+	}
+}
+
+func TestTargetAhead(t *testing.T) {
+	if got := pair("groceries", "7763026").Target.Ahead(); got != DefaultListDaysAhead {
+		t.Errorf("list default = %d", got)
+	}
+	c := chorePair("chores", "24197547")
+	if got := c.Target.Ahead(); got != DefaultChoreDaysAhead {
+		t.Errorf("chore default = %d", got)
+	}
+	c.Target.DaysAhead = new(0)
+	if got := c.Target.Ahead(); got != 0 {
+		t.Errorf("set to 0, got %d", got)
 	}
 }
 

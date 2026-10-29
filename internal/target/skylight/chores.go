@@ -18,9 +18,9 @@ const (
 	// looks deleted, which for a completed reminder only drops the link.
 	LookbackDays = 30
 
-	// AheadDays is how far forward a chore read goes: the engine's horizon,
-	// plus a month for a chore moved past it on the frame.
-	AheadDays = engine.HorizonDays + 30
+	// AheadDays is how far forward a chore read goes: the furthest a pair
+	// can sync ahead, plus a month for a chore moved past it on the frame.
+	AheadDays = engine.MaxDaysAhead + 30
 )
 
 // ChoreClient is the part of *skylight.Client the chore store uses.

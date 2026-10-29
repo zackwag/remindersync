@@ -116,7 +116,7 @@ func syncPair(ctx context.Context, p config.Pair, db *state.DB, open Opener, opt
 	if err != nil {
 		return engine.Result{}, fmt.Errorf("open %s: %w", p.Target, err)
 	}
-	return engine.Sync(ctx, engine.Pair{ID: p.ID, Direction: p.Direction, Hub: hub, Target: target, Dates: p.Target.Dates()}, db, engine.Options{
+	return engine.Sync(ctx, engine.Pair{ID: p.ID, Direction: p.Direction, Hub: hub, Target: target, Dates: p.Target.Dates(), DaysAhead: p.Target.Ahead()}, db, engine.Options{
 		DryRun: opts.DryRun,
 		Force:  opts.Force,
 		Now:    now,
@@ -143,6 +143,7 @@ func Status(ctx context.Context, cfg config.Config, db *state.DB, out io.Writer)
 		}
 		printf(out, "%s (%s)\n", p, p.Direction)
 		printf(out, "  Linked items:       %d\n", st.Links)
+		printf(out, "  Days ahead:         %d\n", p.Target.Ahead())
 		if st.Pending > 0 {
 			printf(out, "  Unfinished creates: %d (the next sync recovers them)\n", st.Pending)
 		}

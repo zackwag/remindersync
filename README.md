@@ -25,7 +25,11 @@ Pick a Reminders list, a Skylight frame and list, and a direction (two-way, or o
 
 ## Chores
 
-A pair can sync a Reminders list with one person's chores instead of a list. In `remindersync config`, pick "Someone's chores" and then the person. Each open reminder becomes a chore on its due date, and checking it off on either side checks off the other. A reminder with no due date goes on today and moves forward each day until it's done. A repeating reminder shows as one chore on its next date, which moves to the following date when it's checked off. Reminders due more than a year out wait until they're within a year.
+A pair can sync a Reminders list with one person's chores instead of a list. In `remindersync config`, pick "Someone's chores" and then the person. Each open reminder becomes a chore on its due date, and checking it off on either side checks off the other. A reminder with no due date goes on today and moves forward each day until it's done. A repeating reminder shows as one chore on its next date. When it's checked off, it moves to the following date, or leaves the chart until then if that's more than a day away.
+
+## Days ahead
+
+A reminder with a due date is synced shortly before it's due: 1 day ahead for chores and 7 days ahead for lists, so a chart or list isn't cluttered with things that are weeks away. Reminders with no due date always sync. A chore added or moved further out on the frame is saved to Reminders with its date and leaves the chart until it's in range. To change it for a pair, set `days_ahead` (0 to 365) in the pair's `[pair.target]` section of `config.toml`. Lowering it removes the items now out of range all at once, so if the next sync refuses with a mass-change error, run `remindersync sync -force` once.
 
 ## Sync
 
