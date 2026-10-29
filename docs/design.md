@@ -28,7 +28,7 @@ From the spikes in #1 and #5, against real data:
 | Reading all 876 of my reminders takes about 130 ms. | Reading the whole hub every sync is fine. No incremental reads needed. |
 | go-eventkit's `WithListID` is broken in v0.16.0. | Reminders are filtered by `ListID` in our code. |
 | `Groceries` has 489 reminders, all completed. | Completed history must not be copied to a target. |
-| A plain binary started by launchd gets its own Reminders permission prompt, under the binary's name. It's tied to that exact build: an identical rebuild at the same path asked again, and until someone answers, `eventkit.New()` blocks. A run from Terminal is granted through Terminal, so it can't approve the daemon. | No `.app` bundle is needed. `install` loads the agent and waits while you answer the prompt, and has to be run again after an upgrade. The daemon records that it's waiting before it asks, so `status` can say why nothing is syncing. |
+| A plain binary started by launchd gets its own Reminders permission prompt, under the binary's name. Until someone answers, `eventkit.New()` blocks. A run from Terminal is granted through Terminal, so it can't approve the daemon. The grant is checked against the program's designated requirement, which for the Go linker's ad hoc signature is the build's hash (`cdhash H"…"`), so every new build asks again. Signed with a Developer ID, it's `identifier "dev.zackwag.ReminderSync" and anchor apple generic and … certificate leaf[subject.OU] = "2Q9ERRLN2D"`, which stays the same across builds and certificate renewals. | Releases ship `ReminderSync.app` signed with the Developer ID, so you allow it once. `install` loads the agent and waits while you answer the prompt. The daemon records that it's waiting before it asks, so `status` can say why nothing is syncing. |
 | Skylight chores: `POST /chores` with `summary`, `start` and `category_id` creates a one-off chore and returns it. `PUT /chores/{id}` changes `summary`, `start` and `status` (`complete` or `pending`, which reopens it), but returns 400 if one request changes `status` and either of the others. A completed chore's `summary` and `start` can still be changed, but if it's moved while completed and then reopened, the response says `pending` while every later `GET` still says `complete`. Reopening first and then moving works. `DELETE` returns 404 once it's gone. `GET /chores?after=&before=` lists them frame-wide, `category_id` filters to one person, and `include_late` adds pending chores from before `after`. | A chore store covers one category and reads one window per sync. A change to the status and other fields is sent as two requests, with the other fields changed while the chore is open: a reopen goes first and a completion last. |
 | A completed chore is listed under the day it was completed, not its start date. | The read window starts 30 days back, so a chore checked off on the frame stays visible to the sync for a month. |
 | Chores have no `created_at`. | Crash recovery can't match an interrupted chore create, so a crash at that moment can leave one duplicate chore. It can't loop. |
@@ -239,8 +239,8 @@ The daemon records its state (waiting for Reminders access, running, access deni
 It's installed as a launchd user agent (`~/Library/LaunchAgents`) rather than a system daemon, because EventKit access is granted per user and needs a login session. `remindersync install`:
 
 1. Checks that there are pairs and a Skylight login.
-1. Copies the running binary to `~/Library/Application Support/remindersync/bin/remindersync`, through a temporary file and a rename, so a fixed path stays in the plist whether it was built with `go run` or `go install`.
-1. Writes `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, unloading any older copy first.
+1. Picks the binary the agent runs. Run from inside an app bundle (`*.app/Contents/MacOS`), including through Homebrew's symlink, it's the app's own binary, and a copy left in `bin` by an earlier install is removed. Otherwise it copies the running binary to `~/Library/Application Support/remindersync/bin/remindersync`, through a temporary file and a rename, so a fixed path stays in the plist whether it was built with `go run` or `go install`.
+1. Writes `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, unloading any older copy first. For the app, the plist sets `AssociatedBundleIdentifiers`, so Login Items shows the agent as ReminderSync.
 1. Waits up to 2 minutes for the new daemon to report running, saying to click Allow if it's waiting on the Reminders prompt. Reports from the daemon it replaced are told apart by PID.
 
 The agent runs at load and only in a GUI (Aqua) session, which the permission prompt needs. launchd restarts it after a crash or an error exit, 30 s apart, but not after a clean exit. That's how a refused permission stops it for good instead of prompting in a loop. stdout and stderr go to `~/Library/Logs/remindersync/daemon.log`. `remindersync uninstall` unloads the agent and removes the plist and the binary, and keeps config, state and the log.
@@ -248,6 +248,20 @@ The agent runs at load and only in a GUI (Aqua) session, which the permission pr
 The Skylight token comes from the Keychain through `zalando/go-keyring`, which calls `/usr/bin/security` on macOS. So the Keychain item's access list trusts `security`, not our binary, and a rebuilt daemon reads it without a Keychain prompt.
 
 Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, and `remindersync status` shows each pair's link count, unfinished creates, and the time, change count and any error of its last sync, from a `run` table in `state.db`.
+
+The daemon notes its binary's identity and modification time at start and checks them after every sync. When `brew upgrade` (or `install`) swaps in a new build, it exits with an error, and launchd's `KeepAlive` restarts it on the new one 30 s later. That keeps the restart in one place rather than in a cask hook, and Homebrew's newer `postflight_steps` can't interpolate the user's UID for `launchctl kickstart` anyway.
+
+### Distribution
+
+Releases follow the pattern of my other Mac apps. release-please tags the release with a personal token, because tags pushed with the default token don't trigger other workflows. On the tag, `.github/workflows/release.yml` on a macOS runner:
+
+1. Imports the Developer ID certificate into a temporary keychain.
+1. Runs `scripts/build-app.sh`, which builds `remindersync` for arm64 and x86_64 with cgo, joins them with `lipo`, puts the result in `ReminderSync.app` with `packaging/Info.plist`, and signs it with the hardened runtime, a secure timestamp and `packaging/remindersync.entitlements`.
+1. Notarizes the zipped app with `notarytool` and staples the ticket.
+1. Uploads `ReminderSync.zip` to the release.
+1. Writes `Casks/remindersync.rb` in `zackwag/homebrew-tap`, opens a PR, and merges it once the tap's checks pass.
+
+The app is `LSUIElement`, so it has no Dock icon, and opening it from Finder just prints usage. It's a bundle so it has a stable identity: a bundle ID for TCC, a name in System Settings, and later, native notifications. The entitlements file asks for calendar access (`com.apple.security.personal-information.calendars`) in case the hardened runtime needs it for EventKit. It hasn't been tried without it.
 
 ## Dismissed alternatives
 
@@ -263,11 +277,12 @@ Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, 
 | Deleting the reminder when its target item is deleted | Clearing items on the frame would destroy hub data. Completing the reminder can be undone. Deleting a reminder in the hub still deletes the target item, because the hub is the source of truth. |
 | A JSON state file | Would work at this size, since 500 links is about 60 KB. But SQLite gives per-item transactions (the crash-recovery guarantee), safe concurrent reads for `status`, and a lock, for one dependency. |
 | `mattn/go-sqlite3` | Needs cgo. `modernc.org/sqlite` is pure Go, so Linux CI keeps building without a C toolchain. EventKit already needs cgo on darwin, but that's the only place. |
+| A Homebrew formula that builds from source | Every build would be signed ad hoc, so every `brew upgrade` would ask for Reminders access again. A cask ships one signed, notarized build. |
+| Signing with a self-signed certificate | Works for TCC, but it's a certificate only this Mac trusts, and releases couldn't be notarized. The Developer ID already exists for my other apps. |
 | Pairs stored in SQLite | Config is what you meant to happen, and state is a cache of what happened. Keeping them apart means `state.db` can be deleted as a last resort and rebuilt with a first sync, and `config.toml` can be read and edited by hand. |
 
 ## Open questions
 
-- **A permission that survives upgrades.** Signing the binary with a self-signed certificate from the login keychain, instead of the linker's ad hoc signature, should make the permission follow the certificate instead of the build. Untested. Until then, `install` after each upgrade covers it.
 - **Log rotation.** The daemon's log only grows. Quiet output keeps that slow, but a target that fails every poll adds a few lines a minute.
 - **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
 - **Dates written to Reminders get a time.** go-eventkit always writes hours, minutes and seconds with a due date, so a reminder that only had a date gets midnight when its chore is moved on the frame or when a chore added on the frame is copied to Reminders. Writing a date only would need a go-eventkit change.

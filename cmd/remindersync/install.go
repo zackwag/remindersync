@@ -41,7 +41,7 @@ func defaultInstallPaths() (installPaths, error) {
 func runInstall(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: remindersync install [flags]\n\nCopy this binary into place and run `remindersync daemon` as a launchd agent\nthat starts at login. Run it again after upgrading.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: remindersync install [flags]\n\nRun `remindersync daemon` as a launchd agent that starts at login. Run from\nReminderSync.app, the agent runs the app's own binary; otherwise this binary\nis copied into place first. Run it again after upgrading.\n\n")
 		fs.PrintDefaults()
 	}
 	var p paths
@@ -82,7 +82,8 @@ func runInstall(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if err := copyExecutable(ip.bin); err != nil {
+	exe, bundle, err := installExecutable(ip.bin)
+	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(ip.log), 0o755); err != nil {
@@ -93,8 +94,11 @@ func runInstall(ctx context.Context, args []string) error {
 	}
 	agent := launchd.Agent{
 		Label:   launchd.Label,
-		Program: []string{ip.bin, "daemon", "-config", p.config, "-state", p.state, "-poll", poll.String()},
+		Program: []string{exe, "daemon", "-config", p.config, "-state", p.state, "-poll", poll.String()},
 		LogPath: ip.log,
+	}
+	if bundle != "" {
+		agent.BundleID = launchd.BundleID
 	}
 	if err := os.WriteFile(ip.plist, agent.Plist(), 0o644); err != nil {
 		return err
@@ -102,7 +106,11 @@ func runInstall(ctx context.Context, args []string) error {
 	if err := launchd.Load(launchd.Exec, ip.plist, launchd.Label); err != nil {
 		return err
 	}
-	fmt.Printf("Copied remindersync to %s\nand loaded %s.\n", ip.bin, ip.plist)
+	if bundle != "" {
+		fmt.Printf("Loaded %s,\nwhich runs %s.\n", ip.plist, bundle)
+	} else {
+		fmt.Printf("Copied remindersync to %s\nand loaded %s.\n", ip.bin, ip.plist)
+	}
 	return waitForDaemon(ctx, db, prev, *wait, ip.log)
 }
 
@@ -148,17 +156,34 @@ func waitForDaemon(ctx context.Context, db *state.DB, prev *state.Daemon, timeou
 	}
 }
 
-// copyExecutable copies the running binary to dst, unless it's already
-// running from there. It writes a temporary file and renames it into place,
-// so a daemon running the old copy keeps working until it's replaced.
-func copyExecutable(dst string) error {
+// installExecutable returns the binary the agent should run, and the app
+// bundle it's in, if any. Run from ReminderSync.app (including through the
+// Homebrew symlink), that's the app's own binary: an upgrade replaces the app
+// in place under the same signature, so the Reminders permission carries
+// over. A copy left in bin by an earlier install is removed. Run from a plain
+// build, the binary is copied to bin, so the agent's path stays put however
+// it was built.
+func installExecutable(bin string) (exe, bundle string, err error) {
 	src, err := os.Executable()
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	if src, err = filepath.EvalSymlinks(src); err != nil {
-		return err
+		return "", "", err
 	}
+	if app, ok := launchd.InBundle(src); ok {
+		if err := os.Remove(bin); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", "", err
+		}
+		return src, app, nil
+	}
+	return bin, "", copyExecutable(src, bin)
+}
+
+// copyExecutable copies src to dst, unless it's already running from there.
+// It writes a temporary file and renames it into place, so a daemon running
+// the old copy keeps working until it's replaced.
+func copyExecutable(src, dst string) error {
 	if cur, err := filepath.EvalSymlinks(dst); err == nil && cur == src {
 		return nil
 	}
@@ -190,7 +215,7 @@ func copyExecutable(dst string) error {
 func runUninstall(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: remindersync uninstall\n\nStop the daemon and remove its launchd agent and installed binary. Pairs,\nsync state and the log are kept.\n")
+		fmt.Fprintf(os.Stderr, "Usage: remindersync uninstall\n\nStop the daemon and remove its launchd agent and any binary install copied.\nReminderSync.app, pairs, sync state and the log are kept.\n")
 	}
 	if err := fs.Parse(args); err != nil {
 		return errUsage

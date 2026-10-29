@@ -31,6 +31,14 @@ func TestPlist(t *testing.T) {
 		}
 	}
 
+	if strings.Contains(got, "AssociatedBundleIdentifiers") {
+		t.Error("a plain binary's agent named a bundle")
+	}
+	a.BundleID = BundleID
+	if got := string(a.Plist()); !strings.Contains(got, "<key>AssociatedBundleIdentifiers</key>\n\t<array>\n\t\t<string>dev.zackwag.ReminderSync</string>\n\t</array>") {
+		t.Errorf("plist doesn't name the bundle:\n%s", got)
+	}
+
 	// plutil is the authority on whether it's a valid plist.
 	if _, err := exec.LookPath("plutil"); err != nil {
 		t.Skip("no plutil")
@@ -41,6 +49,26 @@ func TestPlist(t *testing.T) {
 	}
 	if out, err := exec.Command("plutil", "-lint", path).CombinedOutput(); err != nil {
 		t.Errorf("plutil -lint: %v: %s", err, out)
+	}
+}
+
+func TestInBundle(t *testing.T) {
+	tests := []struct {
+		exe, app string
+		ok       bool
+	}{
+		{"/Applications/ReminderSync.app/Contents/MacOS/remindersync", "/Applications/ReminderSync.app", true},
+		{"/Users/me/Applications/ReminderSync.app/Contents/MacOS/remindersync", "/Users/me/Applications/ReminderSync.app", true},
+		{"/Users/me/Library/Application Support/remindersync/bin/remindersync", "", false},
+		{"/tmp/go-build123/b001/exe/remindersync", "", false},
+		{"/Applications/ReminderSync.app/Contents/Resources/remindersync", "", false},
+		{"/opt/Contents/MacOS/remindersync", "", false},
+	}
+	for _, tt := range tests {
+		app, ok := InBundle(tt.exe)
+		if ok != tt.ok || (ok && app != tt.app) {
+			t.Errorf("InBundle(%q) = %q, %t; want %q, %t", tt.exe, app, ok, tt.app, tt.ok)
+		}
 	}
 }
 

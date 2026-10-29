@@ -8,12 +8,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 // Label names the agent.
 const Label = "com.zackwag.remindersync"
+
+// BundleID is ReminderSync.app's bundle identifier, from packaging/Info.plist.
+const BundleID = "dev.zackwag.ReminderSync"
 
 // Agent describes the launchd job.
 type Agent struct {
@@ -22,6 +26,9 @@ type Agent struct {
 	Program []string
 	// LogPath gets both stdout and stderr.
 	LogPath string
+	// BundleID, if set, is the app the program belongs to, so System Settings
+	// shows the agent under the app's name in Login Items.
+	BundleID string
 }
 
 // Plist renders the agent's property list. The job:
@@ -40,6 +47,12 @@ func (a Agent) Plist() []byte {
 `)
 	key(&b, "Label")
 	str(&b, "\t", a.Label)
+	if a.BundleID != "" {
+		key(&b, "AssociatedBundleIdentifiers")
+		b.WriteString("\t<array>\n")
+		str(&b, "\t\t", a.BundleID)
+		b.WriteString("\t</array>\n")
+	}
 	key(&b, "ProgramArguments")
 	b.WriteString("\t<array>\n")
 	for _, arg := range a.Program {
@@ -70,6 +83,16 @@ func str(b *bytes.Buffer, indent, s string) {
 	b.WriteString(indent + "<string>")
 	_ = xml.EscapeText(b, []byte(s))
 	b.WriteString("</string>\n")
+}
+
+// InBundle reports whether exe is an app bundle's main executable, in
+// Contents/MacOS, and returns the bundle's path.
+func InBundle(exe string) (string, bool) {
+	macos := filepath.Dir(exe)
+	contents := filepath.Dir(macos)
+	app := filepath.Dir(contents)
+	ok := filepath.Base(macos) == "MacOS" && filepath.Base(contents) == "Contents" && strings.HasSuffix(app, ".app")
+	return app, ok
 }
 
 // Launchctl runs launchctl with args and returns its combined output.

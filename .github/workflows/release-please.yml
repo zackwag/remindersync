@@ -14,3 +14,7 @@ jobs:
     steps:
       - name: Create / update release PR, or tag + publish a GitHub Release
         uses: googleapis/release-please-action@v4
+        with:
+          # A personal token, because tags pushed with the default token don't
+          # trigger other workflows, and release.yml runs on the tag.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}

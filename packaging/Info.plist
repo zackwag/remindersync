@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.zackwag.ReminderSync</string>
+	<key>CFBundleName</key>
+	<string>ReminderSync</string>
+	<key>CFBundleDisplayName</key>
+	<string>ReminderSync</string>
+	<key>CFBundleExecutable</key>
+	<string>remindersync</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSRemindersUsageDescription</key>
+	<string>ReminderSync keeps your Reminders lists in sync with Skylight.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>ReminderSync keeps your Reminders lists in sync with Skylight.</string>
+</dict>
+</plist>

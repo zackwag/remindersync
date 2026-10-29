@@ -15,10 +15,18 @@ Early. What's here so far:
 - `remindersync sync` and `remindersync status`: sync every pair once and see how each pair stands.
 - `remindersync daemon`, `install` and `uninstall`: keep every pair in sync in the background, started at login by launchd.
 
+## Install
+
+```sh
+brew install --cask zackwag/tap/remindersync
+```
+
+This installs `ReminderSync.app`, signed with a Developer ID and notarized, and links the `remindersync` command into your path. It needs macOS 14 (Sonoma) or later. The commands below use `remindersync`; from a checkout, `go run ./cmd/remindersync` works too.
+
 ## Set up sync pairs
 
 ```sh
-go run ./cmd/remindersync config
+remindersync config
 ```
 
 Pick a Reminders list, a Skylight frame and list, and a direction (two-way, or one-way where Skylight mirrors Reminders), then name the pair. If Skylight isn't logged in yet, the wizard runs the login first. Pairs are saved to `~/Library/Application Support/remindersync/config.toml`. A Reminders list can be in several pairs, but a Skylight list can only be in one, since two pairs writing the same list would fight over it. Read-only Reminders lists can only be one-way.
@@ -46,15 +54,17 @@ Sync state lives in `~/Library/Application Support/remindersync/state.db`. See [
 ## Run in the background
 
 ```sh
-go run ./cmd/remindersync install
-go run ./cmd/remindersync status
+remindersync install
+remindersync status
 ```
 
-`install` copies the binary to `~/Library/Application Support/remindersync/bin/remindersync`, writes a launchd agent to `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, so `remindersync daemon` runs now and at every login. The daemon syncs when Reminders changes (after 2 s of quiet) and every minute to pick up changes on Skylight (`-poll` changes that). It logs changes and errors to `~/Library/Logs/remindersync/daemon.log`, and `status` shows whether it's running.
+`install` writes a launchd agent to `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, so `remindersync daemon` runs now and at every login. The daemon syncs when Reminders changes (after 2 s of quiet) and every minute to pick up changes on Skylight (`-poll` changes that). It logs changes and errors to `~/Library/Logs/remindersync/daemon.log`, and `status` shows whether it's running.
 
-The first time, macOS asks whether `remindersync` can access your reminders, and `install` waits for you to click Allow. The permission is tied to that exact build, so after upgrading, run `install` again and allow the new build. Until you do, the daemon waits on the prompt and `status` says so.
+Installed with Homebrew, the agent runs the binary inside `ReminderSync.app`. The first time, macOS asks whether ReminderSync can access your reminders, and `install` waits for you to click Allow. `brew upgrade` replaces the app under the same signature, so the permission carries over, and the daemon restarts itself onto the new build within a minute.
 
-`uninstall` stops the daemon and removes the agent and the installed binary. It keeps your pairs, state and log, so `sync` still works. A manual `sync` while the daemon runs is fine: they take turns.
+Run from a plain build (`go run` or `go build`), `install` copies the binary to `~/Library/Application Support/remindersync/bin/remindersync` instead. That build is signed ad hoc, so its permission is tied to that exact build, and each new build asks again. `scripts/build-app.sh -s "Developer ID Application"` builds a signed `ReminderSync.app` locally; move it to `/Applications` and run `install` from it.
+
+`uninstall` stops the daemon and removes the agent and any binary `install` copied. `brew uninstall --cask remindersync` does the same and removes the app. It keeps your pairs, state and log, so `sync` still works. A manual `sync` while the daemon runs is fine: they take turns.
 
 ## Reminders
 

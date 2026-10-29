@@ -11,15 +11,23 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/zackwag/remindersync/internal/lock"
 )
 
-// ErrWatchStopped means the Reminders change feed closed, so the daemon
-// would no longer hear about changes. Exiting lets launchd restart it.
-var ErrWatchStopped = errors.New("daemon: Reminders change watch stopped")
+var (
+	// ErrWatchStopped means the Reminders change feed closed, so the daemon
+	// would no longer hear about changes. Exiting lets launchd restart it.
+	ErrWatchStopped = errors.New("daemon: Reminders change watch stopped")
+
+	// ErrReplaced means the daemon's binary was replaced on disk, as by
+	// `brew upgrade`. Exiting with an error lets launchd restart it on the
+	// new build.
+	ErrReplaced = errors.New("daemon: a new build is installed; restarting onto it")
+)
 
 // Options configures [Run].
 type Options struct {
@@ -36,8 +44,11 @@ type Options struct {
 	// it triggers a sync, so a burst of edits syncs once.
 	Debounce time.Duration
 	// Retry is how soon to try again when another sync held the lock.
-	Retry  time.Duration
-	Logger *slog.Logger
+	Retry time.Duration
+	// Replaced, if set, reports whether the daemon's binary has been
+	// replaced. It's checked after each sync: see [ErrReplaced].
+	Replaced func() bool
+	Logger   *slog.Logger
 }
 
 // Run syncs until ctx is cancelled. A sync in progress when that happens is
@@ -74,8 +85,26 @@ func Run(ctx context.Context, o Options) error {
 		case err != nil:
 			o.Logger.Error("sync failed", "err", err)
 		}
+		if o.Replaced != nil && o.Replaced() {
+			return ErrReplaced
+		}
 		next.Reset(wait)
 	}
+}
+
+// Replaced returns a check for whether the file at path has been replaced
+// or changed since now. Installers swap in a new file rather than rewriting
+// the old one, so the check compares file identity as well as the
+// modification time. A file that's gone counts as replaced.
+func Replaced(path string) (func() bool, error) {
+	orig, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	return func() bool {
+		cur, err := os.Stat(path)
+		return err != nil || !os.SameFile(orig, cur) || !cur.ModTime().Equal(orig.ModTime())
+	}, nil
 }
 
 // LogWriter returns a writer that prefixes each line with the time, for
