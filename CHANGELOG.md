@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/zackwag/remindersync/compare/v0.3.0...v0.4.0) (2026-10-29)
+
+
+### Features
+
+* alert when a pair keeps failing ([#16](https://github.com/zackwag/remindersync/issues/16)) ([4fc4a0f](https://github.com/zackwag/remindersync/commit/4fc4a0f2e439ecb884e22d1be2c8f96c44ac1b46))
+* give ReminderSync.app an icon ([#20](https://github.com/zackwag/remindersync/issues/20)) ([5fc28f3](https://github.com/zackwag/remindersync/commit/5fc28f34fbd98389202fc2c0bc68063d86eb0a2a))
+
 ## [0.3.0](https://github.com/zackwag/remindersync/compare/v0.2.0...v0.3.0) (2026-10-29)
 
 
