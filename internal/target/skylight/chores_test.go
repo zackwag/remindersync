@@ -25,6 +25,10 @@ type fakeChores struct {
 	queries []api.ChoreQuery
 	adds    []api.NewChore
 	updates []api.ChoreUpdate
+
+	// stuck holds chores moved while completed. Like Skylight, reopening one
+	// says pending in the response but leaves it completed in the list.
+	stuck map[string]bool
 }
 
 func (f *fakeChores) add(ch api.Chore) {
@@ -69,9 +73,20 @@ func (f *fakeChores) UpdateChore(_ context.Context, frame, id string, upd api.Ch
 		f.chores[i].Summary = *upd.Summary
 	}
 	if upd.Start != nil {
+		if f.chores[i].Status == api.ChoreComplete {
+			if f.stuck == nil {
+				f.stuck = make(map[string]bool)
+			}
+			f.stuck[id] = true
+		}
 		f.chores[i].Start = *upd.Start
 	}
 	if upd.Status != nil {
+		if *upd.Status == api.ChorePending && f.stuck[id] {
+			ch := f.chores[i]
+			ch.Status = api.ChorePending
+			return ch, nil
+		}
 		f.chores[i].Status = *upd.Status
 	}
 	return f.chores[i], nil
@@ -168,12 +183,15 @@ func TestChoreUpdate(t *testing.T) {
 		t.Errorf("returned %+v", it)
 	}
 	if len(f.updates) != 2 {
-		t.Fatalf("sent %d updates, want the date and the status separately", len(f.updates))
+		t.Fatalf("sent %d updates, want the status and the date separately", len(f.updates))
 	}
-	if u := f.updates[0]; u.Summary != nil || *u.Start != "2026-11-08" || u.Status != nil {
-		t.Errorf("first sent %+v", u)
+	if u := f.updates[0]; *u.Status != api.ChorePending {
+		t.Errorf("first sent %+v, want the reopen first", u)
 	}
-	if u := f.updates[1]; *u.Status != api.ChorePending {
+	if f.chores[0].Status != api.ChorePending {
+		t.Errorf("the chore is still %s in the list", f.chores[0].Status)
+	}
+	if u := f.updates[1]; u.Summary != nil || *u.Start != "2026-11-08" || u.Status != nil {
 		t.Errorf("then sent %+v", u)
 	}
 
@@ -184,6 +202,9 @@ func TestChoreUpdate(t *testing.T) {
 	}
 	if u := f.updates[0]; *u.Summary != "Pay the rent" || u.Start != nil {
 		t.Errorf("sent %+v; an empty date should be left out", u)
+	}
+	if u := f.updates[1]; *u.Status != api.ChoreComplete {
+		t.Errorf("then sent %+v, want the completion last", u)
 	}
 
 	f.updates = nil
