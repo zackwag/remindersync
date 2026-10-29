@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/zackwag/remindersync/compare/v0.4.0...v0.5.0) (2026-10-29)
+
+
+### Features
+
+* rotate the daemon's log at 5 MB ([#23](https://github.com/zackwag/remindersync/issues/23)) ([fc93e9a](https://github.com/zackwag/remindersync/commit/fc93e9a217926cdfdfc8402c3834449af99c9f07))
+
+
+### Bug Fixes
+
+* call the app ReminderSync in permission messages ([#26](https://github.com/zackwag/remindersync/issues/26)) ([a79d4a9](https://github.com/zackwag/remindersync/commit/a79d4a905829fbd3f93ecea43780f2d3b4a7c386))
+* name config's file flag -config like the other commands ([#24](https://github.com/zackwag/remindersync/issues/24)) ([242780e](https://github.com/zackwag/remindersync/commit/242780ec40ba5b6e1e90263d9a49a1f4601f3d3d))
+
 ## [0.4.0](https://github.com/zackwag/remindersync/compare/v0.3.0...v0.4.0) (2026-10-29)
 
 
