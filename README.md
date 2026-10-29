@@ -64,6 +64,8 @@ Installed with Homebrew, the agent runs the binary inside `ReminderSync.app`. Th
 
 Run from a plain build (`go run` or `go build`), `install` copies the binary to `~/Library/Application Support/remindersync/bin/remindersync` instead. That build is signed ad hoc, so its permission is tied to that exact build, and each new build asks again. `scripts/build-app.sh -s "Developer ID Application"` builds a signed `ReminderSync.app` locally; move it to `/Applications` and run `install` from it.
 
+If a pair keeps failing, the daemon sends a notification from ReminderSync: after 10 minutes, or straight away for problems that won't fix themselves, like an expired Skylight login, a missing list or the mass-change limit. Another one says when it's syncing again. `install` asks for permission to send them. If you said no, turn them on in System Settings > Notifications > ReminderSync.
+
 `uninstall` stops the daemon and removes the agent and any binary `install` copied. `brew uninstall --cask remindersync` does the same and removes the app. It keeps your pairs, state and log, so `sync` still works. A manual `sync` while the daemon runs is fine: they take turns.
 
 ## Reminders

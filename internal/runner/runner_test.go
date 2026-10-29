@@ -176,7 +176,9 @@ func TestDryRunWritesAndRecordsNothing(t *testing.T) {
 	f := newFixture(t)
 	f.open.hubs["groceries"].add("Milk")
 
-	out, err := f.sync(t, Options{DryRun: true, Pair: "groceries"})
+	out, err := f.sync(t, Options{DryRun: true, Pair: "groceries", OnResult: func(p config.Pair, _ error) {
+		t.Errorf("dry run reported %s", p.Name)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +197,13 @@ func TestFailedPairDoesntStopTheOthers(t *testing.T) {
 	f.open.hubs["groceries"].itemsErr = errors.New("EventKit is unhappy")
 	f.open.hubs["todo"].add("Call the plumber")
 
-	out, err := f.sync(t, Options{})
+	results := map[string]error{}
+	out, err := f.sync(t, Options{OnResult: func(p config.Pair, err error) { results[p.Name] = err }})
 	if err == nil || err.Error() != "1 of 2 pairs failed" {
 		t.Fatalf("err = %v", err)
+	}
+	if len(results) != 2 || results["groceries"] == nil || results["todo"] != nil {
+		t.Errorf("results = %v, want groceries failed and todo fine", results)
 	}
 	mustContain(t, out,
 		"  failed after 0 of 0 changes: read hub: EventKit is unhappy",

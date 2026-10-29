@@ -12,6 +12,7 @@ import (
 
 	eventkit "github.com/BRO3886/go-eventkit/reminders"
 
+	"github.com/zackwag/remindersync/internal/alert"
 	"github.com/zackwag/remindersync/internal/config"
 	"github.com/zackwag/remindersync/internal/daemon"
 	"github.com/zackwag/remindersync/internal/lock"
@@ -22,6 +23,9 @@ import (
 const (
 	defaultPoll = time.Minute
 	minPoll     = 10 * time.Second
+	// alertAfter is how long a pair fails before you're told, so a short
+	// outage on the target's side passes quietly.
+	alertAfter = 10 * time.Minute
 )
 
 func runDaemon(ctx context.Context, args []string) error {
@@ -80,6 +84,9 @@ func runDaemon(ctx context.Context, args []string) error {
 	if errors.Is(err, eventkit.ErrAccessDenied) {
 		setState(state.DaemonAccessDenied)
 		logger.Error("Reminders access denied. Allow remindersync in System Settings > Privacy & Security > Reminders, then run `remindersync install` again.")
+		if err := alert.Notify("Reminders access denied", "Allow remindersync in System Settings > Privacy & Security > Reminders, then run remindersync install again."); err != nil {
+			logger.Error("couldn't show an alert", "err", err)
+		}
 		// A clean exit, so launchd doesn't restart it into the same refusal.
 		return nil
 	}
@@ -105,6 +112,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	alerts := &alert.Tracker{After: alertAfter, Now: time.Now, Notify: alert.Notify, Logger: logger}
 	out := daemon.LogWriter(os.Stdout, time.Now)
 	err = daemon.Run(ctx, daemon.Options{
 		Changes: changes,
@@ -112,6 +120,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			// Reloaded every time, so pairs added or removed with
 			// `remindersync config` apply without a restart.
 			cfg, err := config.Load(p.config)
+			alerts.Report("config.toml", err)
 			if err != nil {
 				return err
 			}
@@ -120,7 +129,12 @@ func runDaemon(ctx context.Context, args []string) error {
 				return err
 			}
 			defer func() { _ = l.Release() }()
-			return runner.Sync(ctx, cfg, db, op, runner.Options{Quiet: true, Out: out, Logger: logger})
+			return runner.Sync(ctx, cfg, db, op, runner.Options{
+				Quiet:    true,
+				Out:      out,
+				Logger:   logger,
+				OnResult: func(p config.Pair, err error) { alerts.Report(p.Name, err) },
+			})
 		},
 		Poll:     *poll,
 		Debounce: 2 * time.Second,

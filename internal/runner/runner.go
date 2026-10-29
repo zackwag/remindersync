@@ -38,6 +38,9 @@ type Options struct {
 	Logger *slog.Logger
 	// Now defaults to time.Now.
 	Now func() time.Time
+	// OnResult, if set, is called with each pair's outcome, except on a dry
+	// run. err is nil when the pair synced and its run was recorded.
+	OnResult func(p config.Pair, err error)
 }
 
 // Sync syncs each selected pair in turn. A pair that fails doesn't stop the
@@ -66,6 +69,9 @@ func Sync(ctx context.Context, cfg config.Config, db *state.DB, open Opener, opt
 		}
 		if err != nil || recordErr != nil {
 			failed++
+		}
+		if opts.OnResult != nil && !opts.DryRun {
+			opts.OnResult(p, errors.Join(err, recordErr))
 		}
 		if opts.Quiet && err == nil && recordErr == nil && len(res.Actions) == 0 {
 			continue
