@@ -104,20 +104,20 @@ func TestUndatedHubItemFloatsOnToday(t *testing.T) {
 func TestDatesHorizon(t *testing.T) {
 	f := newDateFixture(TwoWay)
 	alarm := f.hub.add("Replace smoke alarm", false)
-	f.hub.setDue(t, alarm.ID, f.daysAhead(HorizonDays+30))
+	f.hub.setDue(t, alarm.ID, f.daysAhead(MaxDaysAhead+30))
 	f.sync(t, Options{})
 	if len(f.target.items) != 0 {
 		t.Fatalf("an item due past the horizon was copied: %+v", f.target.items)
 	}
 
-	f.hub.setDue(t, alarm.ID, f.daysAhead(HorizonDays))
+	f.hub.setDue(t, alarm.ID, f.daysAhead(MaxDaysAhead))
 	f.sync(t, Options{})
 	if len(f.target.items) != 1 {
 		t.Fatalf("an item due at the horizon wasn't copied: %+v", f.target.items)
 	}
 
 	// Moved back out, it leaves the target until it's in range again.
-	f.hub.setDue(t, alarm.ID, f.daysAhead(HorizonDays+1))
+	f.hub.setDue(t, alarm.ID, f.daysAhead(MaxDaysAhead+1))
 	res := f.sync(t, Options{})
 	if len(res.Actions) != 1 || res.Actions[0].Kind != ActionDeleteTarget || len(f.target.items) != 0 {
 		t.Errorf("actions = %v, target = %+v", res.Actions, f.target.items)

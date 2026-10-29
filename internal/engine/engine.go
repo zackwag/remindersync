@@ -25,10 +25,9 @@ const (
 	// matching an interrupted create by its CreatedAt.
 	recoverySkew = time.Minute
 
-	// HorizonDays limits a pair with dates to hub items due within this many
-	// days. Further out isn't useful on a chore chart, and it bounds how far
-	// ahead a target has to read.
-	HorizonDays = 365
+	// MaxDaysAhead is the most [Pair.DaysAhead] can be. It bounds how far
+	// ahead a target with dates has to read.
+	MaxDaysAhead = 365
 )
 
 // Pair is one sync pair: a hub list, a target list and a direction.
@@ -39,10 +38,15 @@ type Pair struct {
 	Hub       Store
 	Target    Store
 	// Dates is set when the target keeps a due date on every item, like
-	// Skylight chores. Due dates are then synced, hub items due beyond
-	// [HorizonDays] are left out, and open hub items with no due date go on
-	// today and move forward each day. Otherwise due dates are ignored.
+	// Skylight chores. Due dates are then synced, and open hub items with no
+	// due date go on today and move forward each day. Otherwise due dates are
+	// ignored, apart from DaysAhead.
 	Dates bool
+	// DaysAhead is how many days before its due date an open hub item is
+	// synced, up to [MaxDaysAhead]. Until then it's left out, as if it weren't
+	// in the list, so when one moves out of range, on either side, its target
+	// item is deleted. Items with no due date are always in range.
+	DaysAhead int
 }
 
 // Options adjusts a sync.
@@ -73,6 +77,7 @@ func Sync(ctx context.Context, p Pair, st State, opts Options) (Result, error) {
 	if s.now == nil {
 		s.now = time.Now
 	}
+	s.cutoff = s.now().Local().AddDate(0, 0, p.DaysAhead).Format(DateLayout)
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -82,7 +87,6 @@ func Sync(ctx context.Context, p Pair, st State, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("read hub: %w", err)
 	}
-	hubItems = s.hubItems(hubItems)
 	targetItems, err := p.Target.Items(ctx)
 	if err != nil {
 		return Result{}, fmt.Errorf("read target: %w", err)
@@ -96,12 +100,13 @@ func Sync(ctx context.Context, p Pair, st State, opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("read pending creates: %w", err)
 	}
 
-	recovered := s.recoverCreates(pending, links, hubItems, targetItems)
+	recovered := s.recoverCreates(pending, links, s.hubItems(hubItems), targetItems)
 	for _, r := range recovered {
 		if r.link != nil {
 			links = append(links, *r.link)
 		}
 	}
+	hubItems = s.hubItems(s.inRange(hubItems, targetItems, len(links) == 0))
 
 	res := Result{Actions: plan(p.Direction, hubItems, targetItems, links)}
 	if !opts.Force {
@@ -155,20 +160,42 @@ type syncer struct {
 	state State
 	now   func() time.Time
 	log   *slog.Logger
+	// cutoff is the last due date in range: see [Pair.DaysAhead].
+	cutoff string
 }
 
 // hubItems prepares the hub's items for planning: see [Pair.Dates].
 func (s *syncer) hubItems(items []Item) []Item {
 	out := make([]Item, 0, len(items))
-	horizon := s.now().Local().AddDate(0, 0, HorizonDays).Format(DateLayout)
 	for _, it := range items {
-		it = s.hubView(it)
-		if s.pair.Dates && it.Due > horizon {
-			continue
-		}
-		out = append(out, it)
+		out = append(out, s.hubView(it))
 	}
 	return out
+}
+
+// inRange drops the hub items that are out of range: see [Pair.DaysAhead].
+// It needs the hub's own due dates, so it runs before [syncer.hubView]. On a
+// pair's first sync, an item whose title is on the target is kept, so it's
+// adopted rather than copied back to the hub as a duplicate.
+func (s *syncer) inRange(items, targetItems []Item, first bool) []Item {
+	titles := make(map[string]bool)
+	if first {
+		for _, t := range targetItems {
+			titles[t.Title] = true
+		}
+	}
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if !s.later(it) || titles[it.Title] {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// later reports whether an item is open and due after the cutoff.
+func (s *syncer) later(it Item) bool {
+	return !it.Completed && it.Due != "" && it.Due > s.cutoff
 }
 
 // hubView is a hub item as the planner sees it: without a due date when the
@@ -194,6 +221,15 @@ func (s *syncer) apply(ctx context.Context, a Action) error {
 		if !a.HubChange.IsZero() {
 			if h, err = s.pair.Hub.Update(ctx, h.ID, a.HubChange); err != nil {
 				return err
+			}
+			// Completing a repeating reminder can move it out of range, and so
+			// can a date changed on the target.
+			if s.later(h) {
+				s.log.Info("hub item moved out of range; deleting it from the target", "item", h.Title, "due", h.Due)
+				if err := s.pair.Target.Delete(ctx, t.ID); err != nil {
+					return err
+				}
+				return s.state.DeleteLink(ctx, s.pair.ID, a.Link.HubID)
 			}
 			h = s.hubView(h)
 			if kept := overruled(a.HubChange, a.Hub, h); !kept.IsZero() {

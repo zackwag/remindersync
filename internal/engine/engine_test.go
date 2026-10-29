@@ -27,7 +27,7 @@ func newFixture(dir Direction) *fixture {
 	}
 	// Reminders keeps due dates. Targets do only in date tests.
 	f.hub.dates = true
-	f.pair = Pair{ID: "p", Direction: dir, Hub: f.hub, Target: f.target}
+	f.pair = Pair{ID: "p", Direction: dir, Hub: f.hub, Target: f.target, DaysAhead: MaxDaysAhead}
 	return f
 }
 

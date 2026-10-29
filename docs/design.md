@@ -103,6 +103,7 @@ type = "skylight"
 frame_id = "5760005"
 list_id = "7763026"
 label = "Grocery List"
+# days_ahead = 7
 ```
 
 The `id` is what the state store is keyed on, so renaming a pair doesn't orphan its state. Titles are stored only for display and error messages. Credentials stay in the Keychain, as they do now.
@@ -179,16 +180,34 @@ Completing a repeating reminder can't be retried safely, because each completion
 
 Deleting the target item works the same way. The sync completes the reminder and unlinks it. The reminder is still open, so the next sync copies it to the target again, and the completed copy is never copied. Checking it off in Reminders changes nothing on the target, because the reminder stays open.
 
-Targets don't show due dates, so a repeating item reappears unchecked straight away rather than when its next occurrence is due.
+On a list pair, a repeating item comes back unchecked when its next occurrence is within the pair's [days ahead](#days-ahead). If that's later, its list item is deleted in the same step and comes back when it's in range.
 
 ### Due dates and chores
 
 A chore pair syncs a Reminders list with one person's (one category's) chores. Each open reminder becomes one one-off chore on its due date, and dates merge field by field like titles. What's special:
 
 - **No due date:** an open reminder with no date gets today's date as a stand-in. Its chore moves to the new today each day, and a date changed on the frame is put back, since the stand-in is never written to Reminders. Once the reminder is done it stops moving.
-- **Horizon:** reminders due more than 365 days out are left out, as if they weren't in the list, so a chore appears once its date is within a year. The chore read covers 30 days back to 395 days ahead, plus overdue chores. A chore moved past that on the frame looks deleted, which completes its reminder.
+- **Range:** a chore appears the pair's [days ahead](#days-ahead) before it's due. The chore read covers 30 days back to 395 days ahead (the most `days_ahead` can be, plus a month), plus overdue chores. A chore moved past that on the frame looks deleted, which completes its reminder.
 - **Repeating reminders:** one chore, on the current occurrence's date. Checking it off completes the reminder, EventKit moves the reminder to its next date, and the same step reopens the chore and moves it to that date. This extends the rule in [Repeating reminders](#repeating-reminders): fields the hub changed on its own while being updated go to the target too.
 - **Chores the sync didn't make:** repeating and up-for-grabs chores are left alone. A one-off chore added to the person's chart on the frame is copied to Reminders with its date, on a two-way pair.
+
+### Days ahead
+
+Each pair has `days_ahead`: an open reminder is synced that many days before it's due, and until then it's left out, as if it weren't in the list. The default is 1 for chores, since a chore chart is about today, and 7 for lists, which get glanced at for the week ahead. It can be set from 0 (only today and overdue) to 365 in `config.toml`. Reminders with no due date are always in range.
+
+| Case | What happens |
+| --- | --- |
+| A reminder due beyond the range that isn't synced yet | Nothing until it's in range, then it's created. |
+| A synced reminder moved out of range in Reminders | Its target item is deleted and the link dropped. It's created again once it's back in range. |
+| A repeating reminder checked off on the target whose next date is out of range | The reminder is completed once, and the target item is deleted in the same step instead of being reopened and moved. |
+| A chore moved out of range on the frame | The reminder takes the new date and the chore is deleted in the same step. It comes back when it's in range. |
+| A chore added out of range on the frame | It's copied to Reminders with its date, and the next sync deletes it until it's in range. |
+| A target item that's gone while its reminder is out of range | The link is dropped and the reminder left open, rather than completed. The sync deletes target items itself when they move out of range, and if it's interrupted before dropping the link, the next run can't tell that from a delete on the target. |
+| A reminder out of range on a pair's first sync, with an item of the same title on the target | It's kept in so it's adopted rather than copied back to Reminders as a duplicate. The next sync deletes the target item until it's in range. |
+
+The range is strict: whoever put an item out of range, it leaves the target until it's in range again, and Reminders holds it meanwhile. Keeping a chore that someone moved out on the frame would need state remembering who set its date, since a chore the sync made out of range under a larger `days_ahead` looks the same in the link.
+
+The cost is churn. A repeating chore gets a new chore ID each cycle (deleted, then created later) rather than moving, which is two API calls instead of one. Lowering `days_ahead` on an existing pair deletes the target items that are now out of range all at once, which can trip the [mass-change limit](#safety-limits), so the first sync after the change may need `-force`.
 
 ### First sync
 
@@ -238,6 +257,8 @@ Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, 
 | ReminderRelay | Archived. It finds items by title, turns a failed lookup into `ha_uid=""` and then deletes the reminder, and wipes notes, due dates and priority on the first sync, because its hash covers fields Skylight doesn't have. |
 | iCloud web APIs (pyicloud-style) | Unofficial, needs the Apple ID password and 2FA sessions that expire, and it's the code path behind the `-20209` account lock. EventKit is supported and needs no secrets. What it costs us is needing a Mac, which the Mac Mini already covers. |
 | Last-writer-wins by timestamp | Skylight has no `updated_at`. |
+| Keeping a chore that's out of range when its date was set on the frame | Needs a new state column to tell it apart from a chore the sync made out of range, and makes the chart's contents depend on history. Strict is easier to predict: the chart shows what's due within `days_ahead`. |
+| Only holding back reminders that aren't synced yet, so an item stays once it's on the target | Simpler, since nothing is ever deleted for being out of range. But checking off a monthly chore would put the next occurrence on the frame straight away, which is the clutter `days_ahead` is there to avoid. |
 | Matching items by title | Titles change and repeat. It's how ReminderRelay lost data. Allowed only once, at first sync, with a dry run. |
 | Deleting the reminder when its target item is deleted | Clearing items on the frame would destroy hub data. Completing the reminder can be undone. Deleting a reminder in the hub still deletes the target item, because the hub is the source of truth. |
 | A JSON state file | Would work at this size, since 500 links is about 60 KB. But SQLite gives per-item transactions (the crash-recovery guarantee), safe concurrent reads for `status`, and a lock, for one dependency. |

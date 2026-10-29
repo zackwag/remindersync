@@ -25,6 +25,13 @@ const (
 	TargetSkylightChores = "skylight-chores"
 )
 
+// Defaults for [Target.DaysAhead]. A chore chart is about today, so a chore
+// shows up the day before. A list is glanced at for the week ahead.
+const (
+	DefaultChoreDaysAhead = 1
+	DefaultListDaysAhead  = 7
+)
+
 // Config is the whole file.
 type Config struct {
 	Pairs []Pair `toml:"pair"`
@@ -58,12 +65,27 @@ type Target struct {
 	ListID     string `toml:"list_id,omitempty"`
 	CategoryID string `toml:"category_id,omitempty"`
 	Label      string `toml:"label,omitempty"`
+
+	// DaysAhead is how many days before its due date a reminder is synced.
+	// Unset means the default for the target type: see [Target.Ahead].
+	DaysAhead *int `toml:"days_ahead,omitempty"`
 }
 
 // Dates reports whether the target keeps a due date on every item, so the
 // pair syncs dates.
 func (t Target) Dates() bool {
 	return t.Type == TargetSkylightChores
+}
+
+// Ahead returns DaysAhead, or the target type's default when it's unset.
+func (t Target) Ahead() int {
+	switch {
+	case t.DaysAhead != nil:
+		return *t.DaysAhead
+	case t.Type == TargetSkylightChores:
+		return DefaultChoreDaysAhead
+	}
+	return DefaultListDaysAhead
 }
 
 // String describes the pair on one line.
@@ -194,6 +216,9 @@ func (p Pair) Validate() error {
 	}
 	if p.Direction != engine.OneWay && p.Direction != engine.TwoWay {
 		return fmt.Errorf("pair %q: direction must be %q or %q, got %q", p.Name, engine.OneWay, engine.TwoWay, p.Direction)
+	}
+	if d := p.Target.Ahead(); d < 0 || d > engine.MaxDaysAhead {
+		return fmt.Errorf("pair %q: days_ahead must be from 0 to %d, got %d", p.Name, engine.MaxDaysAhead, d)
 	}
 	switch p.Target.Type {
 	case TargetSkylight:
