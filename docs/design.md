@@ -253,6 +253,8 @@ Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, 
 
 The daemon notes its binary's identity and modification time at start and checks them after every sync. When `brew upgrade` (or `install`) swaps in a new build, it exits with an error, and launchd's `KeepAlive` restarts it on the new one 30 s later. That keeps the restart in one place rather than in a cask hook, and Homebrew's newer `postflight_steps` can't interpolate the user's UID for `launchctl kickstart` anyway.
 
+The cask removes the agent in `zap`, not `uninstall`. Homebrew runs the installed version's `uninstall` stanza on every upgrade too, and the first casks had `uninstall launchctl:` and deleted the plist there, so each `brew upgrade` stopped the daemon and left it off until the next `remindersync install`. The cost of moving it is that a plain `brew uninstall` leaves the agent behind, pointing at an app that's gone, so the caveats say to run `remindersync uninstall` first or to use `--zap`. Since Homebrew runs the old version's stanza, the upgrade away from a version whose cask still has `uninstall launchctl:` stops the daemon one last time.
+
 ### Distribution
 
 Releases follow the pattern of my other Mac apps. release-please tags the release with a personal token, because tags pushed with the default token don't trigger other workflows. On the tag, `.github/workflows/release.yml` on a macOS runner:

@@ -66,7 +66,9 @@ Run from a plain build (`go run` or `go build`), `install` copies the binary to 
 
 If a pair keeps failing, the daemon sends a notification from ReminderSync: after 10 minutes, or straight away for problems that won't fix themselves, like an expired Skylight login, a missing list or the mass-change limit. Another one says when it's syncing again. `install` asks for permission to send them. If you said no, turn them on in System Settings > Notifications > ReminderSync.
 
-`uninstall` stops the daemon and removes the agent and any binary `install` copied. `brew uninstall --cask remindersync` does the same and removes the app. It keeps your pairs, state and log, so `sync` still works. A manual `sync` while the daemon runs is fine: they take turns.
+`uninstall` stops the daemon and removes the agent and any binary `install` copied. It keeps your pairs, state and log, so `sync` still works. A manual `sync` while the daemon runs is fine: they take turns.
+
+To remove the app, run `remindersync uninstall` before `brew uninstall --cask remindersync`, or use `brew uninstall --zap --cask remindersync`, which also removes the agent, config, state and log. A plain `brew uninstall` leaves the agent behind, pointing at an app that's gone.
 
 ## Reminders
 
