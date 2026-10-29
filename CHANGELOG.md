@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/zackwag/remindersync/compare/v0.1.0...v0.2.0) (2026-10-29)
+
+
+### Features
+
+* hold reminders back until they're due soon ([#15](https://github.com/zackwag/remindersync/issues/15)) ([4c7bfa6](https://github.com/zackwag/remindersync/commit/4c7bfa6304c983b19baef7021a021929e9594e46))
+* sync Reminders lists to Skylight chores ([#13](https://github.com/zackwag/remindersync/issues/13)) ([313b1bf](https://github.com/zackwag/remindersync/commit/313b1bf0b86bbb7bcb9acf1e08ae7edf6d5a20df))
+
 ## 0.1.0 (2026-10-28)
 
 
