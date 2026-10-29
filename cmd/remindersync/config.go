@@ -18,14 +18,17 @@ import (
 func runConfig(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: remindersync config [-path FILE]\n\nAdd and remove sync pairs interactively.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: remindersync config [-config FILE]\n\nAdd and remove sync pairs interactively.\n\n")
 		fs.PrintDefaults()
 	}
 	defPath, err := config.DefaultPath()
 	if err != nil {
 		return err
 	}
-	path := fs.String("path", defPath, "config file")
+	path := fs.String("config", defPath, "config file")
+	// -path was this command's name for -config before the other commands
+	// settled on -config. It still works so existing scripts don't break.
+	fs.StringVar(path, "path", defPath, "deprecated: use -config")
 	if err := fs.Parse(args); err != nil {
 		return errUsage
 	}
