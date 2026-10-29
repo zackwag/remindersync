@@ -265,6 +265,20 @@ A failed release can be re-run. The tap branch is force-pushed and an open PR fo
 
 The app is `LSUIElement`, so it has no Dock icon, and opening it from Finder just prints usage. Its icon is drawn by `packaging/make-icon.swift`, and `scripts/make-icon.sh` regenerates `packaging/AppIcon.icns` from it, so changing the icon is a code change rather than an image edit. It's a bundle so it has a stable identity: a bundle ID for TCC, a name in System Settings, and later, native notifications. The entitlements file asks for calendar access (`com.apple.security.personal-information.calendars`) in case the hardened runtime needs it for EventKit. It hasn't been tried without it.
 
+### Alerts
+
+A daemon that fails quietly is worse than none, because the lists drift apart while everyone assumes they're in sync. So the daemon keeps a failure streak per pair, and for `config.toml`, and shows a macOS notification:
+
+- When a streak reaches 10 minutes. A Skylight outage or a network drop that clears up sooner passes quietly. At the 60 s poll that's about 10 failed syncs.
+- On the first failure, if the error won't clear up on its own: the mass-change limit, a Skylight login that's expired (`ErrAuth`) or missing, a Reminders list that's gone or ambiguous, or a Skylight 403 or 404.
+- Once per streak, so a pair failing all day alerts once, not 1,440 times.
+- When a pair that alerted syncs again.
+- When Reminders access is denied, just before the daemon exits.
+
+Streaks live in memory, so a daemon restart starts them over. That can delay an alert by up to 10 minutes, or repeat one after a restart, which is cheaper than another table.
+
+Notifications come from ReminderSync.app through the UserNotifications framework (`internal/notify`, in Objective-C through cgo). They belong to the app's bundle, so they only work in a process running the app's binary: the daemon, or a command run from the app. `install` asks for permission, so the prompt appears while someone's at the Mac. macOS finds a process's app from the path it was started by, so a command run through a symlink, such as Homebrew's `/opt/homebrew/bin/remindersync`, first re-execs the app's binary by its real path. A plain `go run` build has no app, so it logs failures without notifying.
+
 ## Dismissed alternatives
 
 | Alternative | Why not |
@@ -281,6 +295,8 @@ The app is `LSUIElement`, so it has no Dock icon, and opening it from Finder jus
 | `mattn/go-sqlite3` | Needs cgo. `modernc.org/sqlite` is pure Go, so Linux CI keeps building without a C toolchain. EventKit already needs cgo on darwin, but that's the only place. |
 | A Homebrew formula that builds from source | Every build would be signed ad hoc, so every `brew upgrade` would ask for Reminders access again. A cask ships one signed, notarized build. |
 | Signing with a self-signed certificate | Works for TCC, but it's a certificate only this Mac trusts, and releases couldn't be notarized. The Developer ID already exists for my other apps. |
+| `osascript -e 'display notification'` | Needs no bundle, but notifications show as coming from Script Editor and depend on its notification setting. |
+| Alerting through Home Assistant or a push service | Reaches a phone, but needs a URL and a token in the Keychain, and a failure that's really HA being down would go unreported. A local notification needs no setup. |
 | Pairs stored in SQLite | Config is what you meant to happen, and state is a cache of what happened. Keeping them apart means `state.db` can be deleted as a last resort and rebuilt with a first sync, and `config.toml` can be read and edited by hand. |
 
 ## Open questions
