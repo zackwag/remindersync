@@ -4,15 +4,28 @@ on:
   push:
     tags:
       - 'v*'
+  # Retries a release with the current workflow, for when a run on the tag
+  # failed in a way a re-run can't fix, since a re-run uses the workflow as
+  # it was at the tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, such as v0.3.0
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: actions/setup-go@v6
         with:
@@ -38,7 +51,7 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
       - name: Build and sign ReminderSync.app
-        run: scripts/build-app.sh -v "${GITHUB_REF_NAME#v}" -s "Developer ID Application" -o "$RUNNER_TEMP/export"
+        run: scripts/build-app.sh -v "${TAG#v}" -s "Developer ID Application" -o "$RUNNER_TEMP/export"
 
       - name: Notarize app
         env:
@@ -80,19 +93,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for i in 1 2 3 4 5; do
-            if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            if gh release view "$TAG" >/dev/null 2>&1; then
               break
             fi
-            echo "Release for ${{ github.ref_name }} not found yet, retrying ($i)..."
+            echo "Release for $TAG not found yet, retrying ($i)..."
             sleep 5
           done
-          gh release upload "${{ github.ref_name }}" "${{ runner.temp }}/export/ReminderSync.zip" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/export/ReminderSync.zip" --clobber
 
       - name: Update Homebrew tap
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           SHA=$(shasum -a 256 "$RUNNER_TEMP/export/ReminderSync.zip" | awk '{print $1}')
           BRANCH="update-remindersync-${VERSION}"
 
@@ -130,21 +143,23 @@ jobs:
             EOS
           end
           EOF
-          sed -i '' 's/^          //' Casks/remindersync.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/remindersync.rb
           git diff --cached --quiet && exit 0
           git commit -m "chore(remindersync): update to ${VERSION}"
-          git push origin "$BRANCH"
+          # Forced, so a re-run replaces the branch a failed run left behind.
+          git push --force origin "$BRANCH"
 
           export GH_TOKEN="$TAP_TOKEN"
-          gh pr create --repo zackwag/homebrew-tap --base main --head "$BRANCH" \
-            --title "chore(remindersync): update to ${VERSION}" \
-            --body "Automated update from a remindersync release."
-
           pr_number=$(gh pr list --repo zackwag/homebrew-tap --head "$BRANCH" --json number -q '.[0].number')
+          if [ -z "$pr_number" ]; then
+            gh pr create --repo zackwag/homebrew-tap --base main --head "$BRANCH" \
+              --title "chore(remindersync): update to ${VERSION}" \
+              --body "Automated update from a remindersync release."
+            pr_number=$(gh pr list --repo zackwag/homebrew-tap --head "$BRANCH" --json number -q '.[0].number')
+          fi
           sleep 20
           for i in $(seq 1 40); do
             total=$(gh pr view "$pr_number" --repo zackwag/homebrew-tap --json statusCheckRollup -q '.statusCheckRollup | length')
