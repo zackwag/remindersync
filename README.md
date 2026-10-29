@@ -58,7 +58,7 @@ remindersync install
 remindersync status
 ```
 
-`install` writes a launchd agent to `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, so `remindersync daemon` runs now and at every login. The daemon syncs when Reminders changes (after 2 s of quiet) and every minute to pick up changes on Skylight (`-poll` changes that). It logs changes and errors to `~/Library/Logs/remindersync/daemon.log`, and `status` shows whether it's running.
+`install` writes a launchd agent to `~/Library/LaunchAgents/com.zackwag.remindersync.plist` and loads it, so `remindersync daemon` runs now and at every login. The daemon syncs when Reminders changes (after 2 s of quiet) and every minute to pick up changes on Skylight (`-poll` changes that). It logs changes and errors to `~/Library/Logs/remindersync/daemon.log`, which is rotated to `daemon.log.1` at 5 MB, and `status` shows whether it's running.
 
 Installed with Homebrew, the agent runs the binary inside `ReminderSync.app`. The first time, macOS asks whether ReminderSync can access your reminders, and `install` waits for you to click Allow. `brew upgrade` replaces the app under the same signature, so the permission carries over, and the daemon restarts itself onto the new build within a minute.
 

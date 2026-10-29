@@ -27,6 +27,8 @@ const (
 	// alertAfter is how long a pair fails before you're told, so a short
 	// outage on the target's side passes quietly.
 	alertAfter = 10 * time.Minute
+	// maxLog is how big daemon.log gets before it's rotated to daemon.log.1.
+	maxLog = 5 << 20
 )
 
 func runDaemon(ctx context.Context, args []string) error {
@@ -102,6 +104,10 @@ func runDaemon(ctx context.Context, args []string) error {
 	defer setState(state.DaemonStopped)
 
 	op := &opener{verbose: *verbose, ek: ek}
+	ip, err := defaultInstallPaths()
+	if err != nil {
+		return err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -118,6 +124,11 @@ func runDaemon(ctx context.Context, args []string) error {
 	err = daemon.Run(ctx, daemon.Options{
 		Changes: changes,
 		Sync: func(ctx context.Context) error {
+			if rotated, err := daemon.RotateLog(ip.log, maxLog, os.Stdout, os.Stderr); err != nil {
+				logger.Error("couldn't rotate the log", "err", err)
+			} else if rotated {
+				logger.Info("rotated the log", "old", ip.log+".1")
+			}
 			// Reloaded every time, so pairs added or removed with
 			// `remindersync config` apply without a restart.
 			cfg, err := config.Load(p.config)

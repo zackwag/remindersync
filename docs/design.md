@@ -245,6 +245,8 @@ It's installed as a launchd user agent (`~/Library/LaunchAgents`) rather than a 
 
 The agent runs at load and only in a GUI (Aqua) session, which the permission prompt needs. launchd restarts it after a crash or an error exit, 30 s apart, but not after a clean exit. That's how a refused permission stops it for good instead of prompting in a loop. stdout and stderr go to `~/Library/Logs/remindersync/daemon.log`. `remindersync uninstall` unloads the agent and removes the plist and the binary, and keeps config, state and the log.
 
+launchd opens the log once, as the daemon's stdout and stderr, so the daemon can't simply reopen it. Before each sync, if its stdout is still `daemon.log` and the file has passed 5 MB, the daemon renames it to `daemon.log.1`, replacing any older one, opens a new `daemon.log`, and points stdout and stderr at it with `dup2`. A panic's stack trace goes to the new file too, and at most about 10 MB is kept. Quiet output keeps that slow: the first day and a half of use, mostly testing, wrote 13 KB. A failed sync logs about 330 bytes, so a pair failing every minute adds about 475 KB a day and reaches 5 MB in about 10 days. A daemon run in a terminal has a different stdout, so it never rotates. `newsyslog` was the alternative, but it needs a root-owned config in `/etc/newsyslog.d`, and the daemon would still need a signal to reopen a file it never opened.
+
 The Skylight token comes from the Keychain through `zalando/go-keyring`, which calls `/usr/bin/security` on macOS. So the Keychain item's access list trusts `security`, not our binary, and a rebuilt daemon reads it without a Keychain prompt.
 
 Other commands: `remindersync sync [-pair NAME] [-dry-run] [-force]` runs once, and `remindersync status` shows each pair's link count, unfinished creates, and the time, change count and any error of its last sync, from a `run` table in `state.db`.
@@ -301,7 +303,6 @@ Notifications come from ReminderSync.app through the UserNotifications framework
 
 ## Open questions
 
-- **Log rotation.** The daemon's log only grows. Quiet output keeps that slow, but a target that fails every poll adds a few lines a minute.
 - **Skylight pagination.** Does `GET` on a list return every item, or cut off past some size? Only lists with a few items have been tested. The chores endpoint cuts responses off at exactly 5,000 items with no sign that it did. If lists do the same, the Skylight store has to treat a response at the cap as an error, because otherwise items past the cap would look deleted.
 - **Dates written to Reminders get a time.** go-eventkit always writes hours, minutes and seconds with a due date, so a reminder that only had a date gets midnight when its chore is moved on the frame or when a chore added on the frame is copied to Reminders. Writing a date only would need a go-eventkit change.
 - **Skylight `draft` items.** Items have a `draft` flag. Should drafts be skipped?
