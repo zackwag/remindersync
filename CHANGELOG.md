@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/zackwag/remindersync/compare/v0.5.0...v0.5.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* keep the daemon running across brew upgrade ([#27](https://github.com/zackwag/remindersync/issues/27)) ([c85c925](https://github.com/zackwag/remindersync/commit/c85c925a3627869053b828ae70b75d180c2cc0c4))
+
 ## [0.5.0](https://github.com/zackwag/remindersync/compare/v0.4.0...v0.5.0) (2026-10-29)
 
 
